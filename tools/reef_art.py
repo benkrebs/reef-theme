@@ -258,17 +258,14 @@ def jellyfish_def(uid: str, rnd: random.Random, s: dict, period: float) -> str:
 # --------------------------------------------------------------------------
 
 
-def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 5.2) -> str:
+def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 7.2) -> str:
     """Lionfish after a photo: robust banded body with wavy stripes that curve
-    around the eye, feather-like pectoral blades fanning downwards in pulses,
+    around the eye, feather-like pectoral blades that open and close slowly like a fan,
     long banded dorsal spines with streaming sails and frayed pale tips, fringed
     tentacles on the face, and a mystic aura that breathes with the fins."""
     B = beat
-    F = 8
+    F = 10
     ts = [i / F for i in range(F)]
-
-    def pulse(t):  # quick opening, slow closing
-        return math.sin(math.pi * t ** 0.55) ** 2
 
     body = ("M104 8C102-2 96-14 84-24C70-36 46-40 18-38C-14-36-48-24-76-10L-88-8L-88 8L-76 10"
             "C-52 22-24 30 6 32C40 34 72 30 90 22C98 18 104 14 104 8Z")
@@ -295,10 +292,32 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 5.2) -> st
 
     def banded(rid, frames, width):
         defs.append(f'<path id="{rid}" d="{frames[0]}">{anim_d(frames, B)}</path>')
-        return (f'<use href="#{rid}" stroke="{s["spine"]}" stroke-width="{width:g}" stroke-linecap="round"/>'
-                f'<use href="#{rid}" stroke="{s["stripe"]}" stroke-width="{width + 0.15:g}" stroke-dasharray="9 7"/>')
+        return (f'<use href="#{rid}" fill="none" stroke="{s["spine"]}" stroke-width="{width:g}" stroke-linecap="round"/>'
+                f'<use href="#{rid}" fill="none" stroke="{s["stripe"]}" stroke-width="{width + 0.15:g}" stroke-dasharray="9 7"/>')
 
-    # ---- pectoral fins: separate feather blades, fanning downwards in pulses
+    def ray_shape(cx, cy, a, L, bend):
+        """A curved ray: its direction turns by `bend` towards the tip, like a
+        soft fin ray flexing in the water. Returns at(f, w): point at fraction f
+        of the length, offset w to the side of the next ray."""
+        N = 16
+        pts, dirs = [(cx, cy)], [a]
+        x, y = cx, cy
+        for k in range(1, N + 1):
+            d = a + bend * ((k - 0.5) / N) ** 1.4
+            x += math.cos(d) * L / N
+            y += math.sin(d) * L / N
+            pts.append((x, y))
+            dirs.append(a + bend * (k / N) ** 1.4)
+
+        def at(f, w=0.0):
+            k = min(N, max(0, round(f * N)))
+            (px_, py_), d = pts[k], dirs[k]
+            return (px_ - math.sin(d) * w, py_ + math.cos(d) * w)
+
+        return at
+
+    # ---- pectoral fins: feather blades that open and close slowly like a fan,
+    # a wave flows through them, each blade curls behind like the hem of a dress
     def pectoral(key, cx, cy, a0, a1, rays, lmax, lmin, phase, op):
         base = [a0 + (a1 - a0) * i / (rays - 1) for i in range(rays)]
         lens = [(lmin + (lmax - lmin) * math.sin(math.pi * (0.1 + 0.85 * i / (rays - 1)))) * rnd.uniform(0.94, 1.06) for i in range(rays)]
@@ -306,25 +325,25 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 5.2) -> st
         amid = (a0 + a1) / 2
         fb, fr = [], []
         for t in ts:
-            p = pulse((t + phase) % 1)
-            ang = [math.radians(amid + (a - amid) * (0.72 + 0.42 * p) + 5 * math.sin(TAU * (t + phase) - i * 0.4)) for i, a in enumerate(base)]
+            ph0 = TAU * (t + phase)
+            open_ = 0.5 + 0.5 * math.sin(ph0)
             blades, rays_d = [], []
             for i in range(rays):
-                a, L, W = ang[i], lens[i] * (0.94 + 0.08 * p), widths[i] * (0.85 + 0.25 * p)
-                ux, uy = math.cos(a), math.sin(a)
-                px, py = -uy, ux  # towards the next (later) ray
+                phi = ph0 - i * 0.55
+                a = math.radians(amid + (base[i] - amid) * (0.76 + 0.36 * open_) + 9 * math.sin(phi))
+                bend = 0.34 * math.sin(phi - 1.4)
+                L = lens[i] * (0.95 + 0.07 * open_)
+                W = widths[i] * (0.82 + 0.32 * open_)
+                at = ray_shape(cx, cy, a, L, bend)
 
-                def on(f):
-                    return (cx + ux * f * L, cy + uy * f * L)
+                def flutter(f):
+                    return 2.6 * f * math.sin(TAU * (2 * f - 2 * t) + i)
 
-                def off(f, w):
-                    x, y = on(f)
-                    return (x + px * w, y + py * w)
-
-                pts = [on(0.04), on(0.55), on(1.0), off(0.97, W * 0.35), off(0.9, W * 0.95), off(0.84, W * 0.6),
-                       off(0.74, W), off(0.5, W * 0.9), off(0.26, W * 0.55)]
+                pts = [at(0.04), at(0.3), at(0.62), at(1.0),
+                       at(0.97, W * 0.35 + flutter(0.97)), at(0.9, W * 0.95 + flutter(0.9)), at(0.84, W * 0.6 + flutter(0.84)),
+                       at(0.74, W + flutter(0.74)), at(0.5, W * 0.9 + flutter(0.5)), at(0.26, W * 0.55)]
                 blades.append(smooth(pts, closed=True))
-                rays_d.append(f"M{n(cx)} {n(cy)}L{pt(on(1.04))}")
+                rays_d.append(smooth([at(0), at(0.35), at(0.7), at(1.0)]))
             fb.append("".join(blades))
             fr.append("".join(rays_d))
         gid = f"{uid}b{key}"
@@ -340,7 +359,8 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 5.2) -> st
             + "</g>"
         )
 
-    # ---- dorsal spines with streaming sails and a low web
+    # ---- dorsal spines: a slow wave runs from head to tail, the spines flex,
+    # the sails between them billow and their edges ripple
     def dorsal():
         k = 12
         bases = [(70 - i * 10, top(70 - i * 10) + 5) for i in range(k)]
@@ -349,33 +369,31 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 5.2) -> st
         sail_w = [rnd.uniform(9, 13) for _ in range(k)]
         fs, fsail, fweb = [], [], []
         for t in ts:
-            ang = [math.radians(a + 4 * math.sin(TAU * t - i * 0.5)) for i, a in enumerate(base_ang)]
-
-            def P(i, f, w=0.0):
-                a = ang[i]
-                x, y = bases[i][0] + f * lens[i] * math.cos(a), bases[i][1] + f * lens[i] * math.sin(a)
-                return (x + math.sin(a) * w, y - math.cos(a) * w)  # w > 0: trailing side
-
-            fs.append("".join(f"M{pt(bases[i])}L{pt(P(i, 1))}" for i in range(k)))
-            sails, webs = [], []
+            shapes = []
             for i in range(k):
+                ph = TAU * t - i * 0.5
+                a = math.radians(base_ang[i] + 8 * math.sin(ph))
+                shapes.append(ray_shape(bases[i][0], bases[i][1], a, lens[i], 0.2 * math.sin(ph - 1.3)))
+            fs.append("".join(smooth([sh(0), sh(0.35), sh(0.7), sh(1.0)]) for sh in shapes))
+            sails, webs = [], []
+            for i, sh in enumerate(shapes):
                 W = sail_w[i]
 
-                def flow(f):  # wave running up the sail: it streams in the water
-                    return 3.2 * f * math.sin(TAU * (2.2 * f - 1.4 * t) + i * 0.9)
+                def flow(f):  # wave running up the flag
+                    return 5 * f * math.sin(TAU * (2.2 * f - 2 * t) + i * 0.9)
 
-                pts = [P(i, 0.62), P(i, 0.82), P(i, 1.0),
-                       P(i, 0.98, W * 0.45 + flow(1.0)), P(i, 0.94, W * 0.85 + flow(0.94)), P(i, 0.9, W * 0.5 + flow(0.9)),
-                       P(i, 0.82, W * 0.8 + flow(0.82)), P(i, 0.7, W * 0.55 + flow(0.7))]
+                pts = [sh(0.62), sh(0.82), sh(1.0),
+                       sh(0.98, -(W * 0.45 + flow(1.0))), sh(0.94, -(W * 0.85 + flow(0.94))), sh(0.9, -(W * 0.5 + flow(0.9))),
+                       sh(0.82, -(W * 0.8 + flow(0.82))), sh(0.7, -(W * 0.55 + flow(0.7)))]
                 sails.append(smooth(pts, closed=True))
                 if i < k - 1:
-                    # the sail between two spines: its free edge sags and ripples in the current
-                    a, b = P(i, 0.8), P(i + 1, 0.76)
+                    a, b = sh(0.8), shapes[i + 1](0.76)
                     m = mid(a, b)
-                    ph = TAU * 1.0 * t - i * 0.7
-                    sag = 9 + 5 * math.sin(ph)
-                    c1 = (a[0] + (m[0] - a[0]) * 0.6, a[1] + (m[1] - a[1]) * 0.6 + sag + 4 * math.sin(ph + 1.3))
-                    c2 = (b[0] + (m[0] - b[0]) * 0.6, b[1] + (m[1] - b[1]) * 0.6 + sag - 4 * math.sin(ph + 1.3))
+                    ph = TAU * t - i * 0.7
+                    sag = 10 + 8 * math.sin(ph)
+                    rip = 6 * math.sin(ph + 1.3)
+                    c1 = (a[0] + (m[0] - a[0]) * 0.6, a[1] + (m[1] - a[1]) * 0.6 + sag + rip)
+                    c2 = (b[0] + (m[0] - b[0]) * 0.6, b[1] + (m[1] - b[1]) * 0.6 + sag - rip)
                     webs.append(f"M{pt(bases[i])}L{pt(a)}C{pt(c1)} {pt(c2)} {pt(b)}L{pt(bases[i + 1])}Z")
             fsail.append("".join(sails))
             fweb.append("".join(webs))
@@ -385,20 +403,28 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 5.2) -> st
             + banded(f"{uid}rd", fs, 2.4)
         )
 
-    # ---- translucent soft fins with dotted rays (soft dorsal, anal, caudal)
-    def soft_fin(cx, cy, a0, a1, rays, L, amp, dur):
-        tips = [(cx + L * math.cos(math.radians(a0 + (a1 - a0) * i / (rays - 1))), cy + L * math.sin(math.radians(a0 + (a1 - a0) * i / (rays - 1)))) for i in range(rays)]
-        mem = smooth([(cx, cy)] + tips, closed=True)
-        rays_d = "".join(f"M{n(cx)} {n(cy)}L{pt(p)}" for p in tips)
-        dots = "".join(f'<circle cx="{n(cx + (p[0] - cx) * f)}" cy="{n(cy + (p[1] - cy) * f)}" r="{n(1.5 - f * 0.6)}"/>' for p in tips for f in (0.3, 0.5, 0.7, 0.88))
-        return (f"<g>{anim_rot([-amp, amp, -amp], cx, cy, dur, extra=' ' + EASE)}"
-                f'<path d="{mem}" fill="url(#{uid}md)"/>'
-                f'<path d="{rays_d}" stroke="{s["spine"]}" stroke-width=".7" stroke-opacity=".7"/>'
-                f'<g fill="{s["stripe"]}" opacity=".8">{dots}</g></g>')
+    # ---- translucent soft fins (soft dorsal, anal, caudal): they undulate
+    def soft_fin(key, cx, cy, a0, a1, rays, L, amp, speed):
+        fm, fr = [], []
+        for t in ts:
+            tips, rr = [], []
+            for i in range(rays):
+                ph = TAU * speed * t - i * 0.45
+                a = math.radians(a0 + (a1 - a0) * i / (rays - 1) + amp * math.sin(ph))
+                sh = ray_shape(cx, cy, a, L, 0.28 * math.sin(ph - 1.2))
+                tips.append(sh(1.0))
+                rr.append(smooth([sh(0), sh(0.5), sh(1.0)]))
+            fm.append(smooth([(cx, cy)] + tips, closed=True))
+            fr.append("".join(rr))
+        rid = f"{uid}sf{key}"
+        defs.append(f'<path id="{rid}" d="{fr[0]}">{anim_d(fr, B)}</path>')
+        return (f'<path d="{fm[0]}" fill="url(#{uid}md)">{anim_d(fm, B)}</path>'
+                f'<use href="#{rid}" stroke="{s["spine"]}" stroke-width=".7" stroke-opacity=".7" fill="none"/>'
+                f'<use href="#{rid}" stroke="{s["stripe"]}" stroke-width="2.6" stroke-dasharray=".1 7" stroke-linecap="round" stroke-opacity=".8" fill="none"/>')
 
-    caudal = soft_fin(-86, 0, 140, 220, 11, 52, 7, B * 0.8)
-    soft_dorsal = soft_fin(-44, -30, 195, 255, 9, 46, 3, B * 1.2)
-    anal = soft_fin(-36, 24, 110, 170, 8, 40, 3, B * 1.2)
+    caudal = soft_fin("c", -86, 0, 140, 220, 11, 52, 10, 1)
+    soft_dorsal = soft_fin("d", -44, -30, 195, 255, 9, 46, 7, 1)
+    anal = soft_fin("a", -36, 24, 110, 170, 8, 40, 7, 1)
 
     # ---- body stripes: wavy bands, wider on the back, thin lines in the gaps,
     # and bands radiating around the eye on the head
