@@ -78,19 +78,28 @@ def anim_sc(vals: list[tuple], dur: float, extra: str = "", additive: bool = Tru
     return f'<animateTransform attributeName="transform" type="scale" values="{v}" dur="{n(dur)}s" repeatCount="indefinite"{add}{extra}/>'
 
 
+def osc(amp: float, phase: float, cx: float, cy: float, dur: float, bias: float = 0.0, kind: str = "rotate") -> str:
+    """Sinusoidal rotation (or skewX) sampled into 13 values: a seamless, smooth
+    loop that uses only transform animation, which every engine supports."""
+    if kind == "rotate":
+        vals = ";".join(f"{n(bias + amp * math.sin(TAU * i / 12 + phase))} {n(cx)} {n(cy)}" for i in range(13))
+    else:
+        vals = ";".join(n(bias + amp * math.sin(TAU * i / 12 + phase)) for i in range(13))
+    return f'<animateTransform attributeName="transform" type="{kind}" additive="sum" values="{vals}" dur="{n(dur)}s" repeatCount="indefinite"/>'
+
+
 def glow(grad: str, cx: float, cy: float, r: tuple, op: tuple, dur: float, extra: str = PULSE, rx_scale: float = 1.0) -> str:
-    """Two-layer glow (core + halo) that swells and brightens with the motion."""
-    t = f' transform="translate({n(cx)} {n(cy)}) scale({rx_scale:g} 1)"' if (cx or cy or rx_scale != 1) else ""
-    core = (
-        f'<circle r="{n(r[0])}" fill="url(#{grad})" opacity="{op[0]:g}">'
-        f'<animate attributeName="r" values="{n(r[0])};{n(r[1])};{n(r[0])}" dur="{n(dur)}s" repeatCount="indefinite" {extra}/>'
-        f'<animate attributeName="opacity" values="{op[0]:g};{op[1]:g};{op[0]:g}" dur="{n(dur)}s" repeatCount="indefinite" {extra}/></circle>'
-    )
-    halo = (
+    """Two-layer glow (core + halo) that swells and brightens with the motion.
+    Swelling is a scale transform, brightening an opacity animation."""
+    k = r[1] / r[0]
+    return (
+        f'<g transform="translate({n(cx)} {n(cy)}) scale({rx_scale:g} 1)">'
         f'<circle r="{n(r[1] * 1.9)}" fill="url(#{grad})" opacity="{op[0] * 0.3:.2f}">'
         f'<animate attributeName="opacity" values="{op[0] * 0.3:.2f};{op[1] * 0.45:.2f};{op[0] * 0.3:.2f}" dur="{n(dur)}s" repeatCount="indefinite" {extra}/></circle>'
+        f'<g><animateTransform attributeName="transform" type="scale" values="1;{k:.2f};1" dur="{n(dur)}s" repeatCount="indefinite" {extra}/>'
+        f'<circle r="{n(r[0])}" fill="url(#{grad})" opacity="{op[0]:g}">'
+        f'<animate attributeName="opacity" values="{op[0]:g};{op[1]:g};{op[0]:g}" dur="{n(dur)}s" repeatCount="indefinite" {extra}/></circle></g></g>'
     )
-    return f"<g{t}>{halo}{core}</g>"
 
 
 def wander(rnd: random.Random, start, end, steps: int, amp: float):
@@ -160,96 +169,84 @@ def glow_gradients(colors: dict[str, str]) -> str:
 
 
 def jellyfish_def(uid: str, rnd: random.Random, s: dict, period: float) -> str:
-    """Upright jelly (bell up), wrapped in rotate(90) so the bell faces +x."""
+    """Upright jelly (bell up), wrapped in rotate(90) so the bell faces +x.
+    Everything moves with transform animations only: the bell contracts
+    (scale), tentacles and oral arms are jointed chains that swing in a wave."""
     P = period
-    relaxed = "M-40 0C-40-46 40-46 40 0Q30 7 20 2Q10 8 0 3Q-10 8-20 2Q-30 7-40 0Z"
-    contracted = "M-30 5C-33-55 33-55 30 5Q22 11 15 8Q8 13 0 9Q-8 13-15 8Q-22 11-30 5Z"
-    bell_anim = f'<animate attributeName="d" values="{relaxed};{contracted};{relaxed}" dur="{n(P)}s" repeatCount="indefinite" {PULSE}/>'
+    bell = "M-40 0C-40-46 40-46 40 0Q30 7 20 2Q10 8 0 3Q-10 8-20 2Q-30 7-40 0Z"
+    neon = s.get("neon")
 
-    F = 5
+    def chain(x0, y0, L, segs, amps, phase, curl, stroke, width, opacity):
+        """A tentacle of `segs` segments, each swinging around its joint with a lag."""
+        out, closes = [], ""
+        y = y0
+        seg = L / segs
+        for k in range(segs):
+            c = curl * (1 if k % 2 == 0 else -1)
+            d = f"M{n(x0)} {n(y)}Q{n(x0 + c)} {n(y + seg / 2)} {n(x0)} {n(y + seg)}"
+            strokes = ""
+            if neon:
+                strokes += f'<path d="{d}" stroke="{stroke}" stroke-width="{width * 4.5:g}" stroke-opacity=".12"/>'
+            strokes += f'<path d="{d}" stroke="{stroke}" stroke-width="{width:g}" stroke-opacity="{opacity:g}"/>'
+            out.append(f"<g>{osc(amps[k], phase - k * 0.9, x0, y, P)}{strokes}")
+            closes += "</g>"
+            y += seg
+        return "".join(out) + closes
 
-    def thread_frames(roots, lengths, amps, phases, k=1.15, K=7):
-        frames = []
-        for fi in range(F):
-            t = fi / F
-            sub = []
-            for x0, L, A, ph in zip(roots, lengths, amps, phases):
-                pts = []
-                for j in range(K):
-                    q = j / (K - 1)
-                    x = x0 + A * q**1.1 * math.sin(TAU * (k * q - t) + ph)
-                    y = 4 + q * L * (1 - 0.05 * math.sin(TAU * t))
-                    pts.append((x, y))
-                sub.append(smooth(pts))
-            frames.append("".join(sub))
-        return frames
+    tent = []
+    for i in range(8):
+        x0 = -34 + 68 * i / 7
+        tent.append(chain(x0, 4, rnd.uniform(150, 250), 3, (4, 9, 14), rnd.uniform(0, TAU), rnd.uniform(3, 6), s["tent"], 1.1, s["tent_op"]))
+    short = "".join(
+        f'<path d="M{n(x)} 4Q{n(x + 2)} {n(4 + L / 2)} {n(x)} {n(4 + L)}"/>'
+        for x, L in [(-38 + 76 * i / 11, rnd.uniform(22, 44)) for i in range(12)]
+    )
 
-    # Long tentacles.
-    m = 8
-    roots = [-34 + 68 * i / (m - 1) for i in range(m)]
-    tent = thread_frames(roots, [rnd.uniform(150, 260) for _ in roots], [rnd.uniform(10, 18) for _ in roots], [rnd.uniform(0, TAU) for _ in roots])
-    # Short marginal threads along the rim.
-    m2 = 12
-    roots2 = [-38 + 76 * i / (m2 - 1) for i in range(m2)]
-    short = thread_frames(roots2, [rnd.uniform(22, 44) for _ in roots2], [rnd.uniform(3, 6) for _ in roots2], [rnd.uniform(0, TAU) for _ in roots2], k=0.9, K=3)
-    # Oral arms: frilly ribbons.
     arms = []
-    arm_specs = [(-9, rnd.uniform(80, 110), 0.0), (-3, rnd.uniform(95, 125), 1.7), (3, rnd.uniform(90, 120), 3.1), (9, rnd.uniform(75, 105), 4.4)]
-    for fi in range(F):
-        t = fi / F
-        sub = []
-        for x0, L, ph in arm_specs:
-            K = 6
+    for x0, L, ph in [(-9, rnd.uniform(80, 110), 0.0), (-3, rnd.uniform(95, 125), 1.7), (3, rnd.uniform(90, 120), 3.1), (9, rnd.uniform(75, 105), 4.4)]:
+        def ribbon(q0, q1):
+            K = 5
             left, right = [], []
-            for j in range(K):
-                q = j / (K - 1)
-                cx = x0 + (6 + 8 * q) * math.sin(TAU * (0.8 * q - t) + ph)
+            for jq in range(K):
+                q = q0 + (q1 - q0) * jq / (K - 1)
+                cx = x0 + (5 + 6 * q) * math.sin(TAU * 0.8 * q + ph)
                 cy = 6 + q * L
                 w = 7.5 * (1 - 0.65 * q)
-                ruff = 0.45 * math.sin(TAU * (3.5 * q - 2 * t) + ph)
+                ruff = 0.45 * math.sin(TAU * 3.5 * q + ph)
                 left.append((cx - w * (1 + ruff), cy))
                 right.append((cx + w * (1 - ruff), cy))
-            sub.append(smooth(left + right[::-1], closed=True))
-        arms.append("".join(sub))
+            return smooth(left + right[::-1], closed=True)
+        jx = x0 + 8 * math.sin(TAU * 0.4 + ph)
+        jy = 6 + 0.5 * L
+        attrs = f'fill="{s["arm"]}" fill-opacity="{s["arm_op"]:g}" stroke="{s["arm_edge"]}" stroke-opacity=".5" stroke-width=".8"'
+        arms.append(
+            f'<g>{osc(7, ph, x0, 6, P)}<path d="{ribbon(0, 0.55)}" {attrs}/>'
+            f'<g>{osc(12, ph - 1.1, jx, jy, P)}<path d="{ribbon(0.48, 1.0)}" {attrs}/></g></g>'
+        )
 
     canals = "".join(f"M0-16L{n(22 * math.cos(a))} {n(-16 + 16 * math.sin(a))}" for a in [math.pi * (0.1 + 0.8 * i / 7) for i in range(8)])
     gonads = "".join(
         f'<ellipse cx="{n(7 * math.cos(a))}" cy="{n(-16 + 4 * math.sin(a))}" rx="6" ry="4" transform="rotate({n(math.degrees(a))} {n(7 * math.cos(a))} {n(-16 + 4 * math.sin(a))})"/>'
         for a in [i * TAU / 4 + 0.4 for i in range(4)]
     )
-    hanging_squeeze = anim_sc([(1, 1), (0.76, 1.04), (1, 1)], P, " " + PULSE)
-
-    parts = [
-        f'<g id="{uid}"><g transform="rotate(90)">',
-        f"<defs>"
-        f'<path id="{uid}b" d="{relaxed}">{bell_anim}</path>'
-        f'<path id="{uid}t" d="{tent[0]}">{anim_d(tent, P)}</path>'
-        f"</defs>",
-        "<g>",
-        anim_tr([(0, 0), (0, -14), (0, 0)], P, " " + PULSE),  # thrust with each contraction
-        glow(s["glow"], 0, -18, (52, 70), (s["glow_op"][0], s["glow_op"][1]), P),
-        "<g>",
-        hanging_squeeze,
-    ]
-    if s.get("neon"):
-        parts.append(f'<use href="#{uid}t" fill="none" stroke="{s["tent"]}" stroke-width="5" stroke-opacity=".12"/>')
-    parts += [
-        f'<use href="#{uid}t" fill="none" stroke="{s["tent"]}" stroke-width="1.1" stroke-opacity="{s["tent_op"]:g}" stroke-linecap="round"/>',
-        f'<path d="{arms[0]}" fill="{s["arm"]}" fill-opacity="{s["arm_op"]:g}" stroke="{s["arm_edge"]}" stroke-opacity=".5" stroke-width=".8">{anim_d(arms, P)}</path>',
-        f'<path d="{short[0]}" fill="none" stroke="{s["tent"]}" stroke-width=".8" stroke-opacity="{s["tent_op"] * 0.8:.2f}">{anim_d(short, P)}</path>',
-        "</g>",
-        f'<use href="#{uid}b" fill="{s["bell"]}" fill-opacity="{s["bell_op"]:g}"/>',
-    ]
-    if s.get("neon"):
-        parts.append(f'<use href="#{uid}b" fill="none" stroke="{s["rim"]}" stroke-width="7" stroke-opacity=".14"/>')
-    parts += [
-        f'<use href="#{uid}b" fill="none" stroke="{s["rim"]}" stroke-width="1.2" stroke-opacity=".85"/>',
-        f'<g transform="translate(0 0)">{anim_sc([(1, 1), (0.75, 1.18), (1, 1)], P, " " + PULSE)}'
+    contract = f'<animateTransform attributeName="transform" type="scale" additive="sum" values="1 1;.76 1.18;1 1" dur="{n(P)}s" repeatCount="indefinite" {PULSE}/>'
+    rim = ""
+    if neon:
+        rim = f'<path d="{bell}" fill="none" stroke="{s["rim"]}" stroke-width="7" stroke-opacity=".14"/>'
+    return (
+        f'<g id="{uid}"><g transform="rotate(90)"><g>'
+        + anim_tr([(0, 0), (0, -14), (0, 0)], P, " " + PULSE)
+        + glow(s["glow"], 0, -18, (52, 70), (s["glow_op"][0], s["glow_op"][1]), P)
+        + f'<g>{anim_sc([(1, 1), (0.8, 1.04), (1, 1)], P, " " + PULSE)}'
+        f'<g fill="none" stroke-linecap="round">{"".join(tent)}</g>'
+        + "".join(arms)
+        + f'<g fill="none" stroke="{s["tent"]}" stroke-width=".8" stroke-opacity="{s["tent_op"] * 0.8:.2f}">{osc(9, 0, 0, 4, P, kind="skewX")}{short}</g></g>'
+        f'<g>{contract}<path d="{bell}" fill="{s["bell"]}" fill-opacity="{s["bell_op"]:g}"/>{rim}'
+        f'<path d="{bell}" fill="none" stroke="{s["rim"]}" stroke-width="1.2" stroke-opacity=".85"/>'
         f'<path d="{canals}" fill="none" stroke="{s["rim"]}" stroke-width=".7" stroke-opacity=".45"/>'
-        f'<g fill="none" stroke="{s["gonad"]}" stroke-width="2.2" stroke-opacity=".75">{gonads}</g></g>',
-        "</g></g></g>",
-    ]
-    return "".join(parts)
+        f'<g fill="none" stroke="{s["gonad"]}" stroke-width="2.2" stroke-opacity=".75">{gonads}</g></g>'
+        "</g></g></g>"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -373,68 +370,61 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
         out.append("</g>")
         return "".join(out)
 
-    # ---- dorsal spines: a slow wave runs from head to tail, the spines flex,
-    # the sails between them billow and their edges ripple
+    # ---- dorsal spines: each spine (with its flag and the sail to the next
+    # spine) swings around its base; a wave runs from head to tail, the flags
+    # flutter around a joint. Transform animation only.
     def dorsal():
         k = 12
         bases = [(70 - i * 10, top(70 - i * 10) + 5) for i in range(k)]
-        base_ang = [-100 - i * 4.6 for i in range(k)]
+        angs = [math.radians(-100 - i * 4.6) for i in range(k)]
         lens = [(116 - i * 5.2) * rnd.uniform(0.93, 1.06) for i in range(k)]
-        sail_w = [rnd.uniform(9, 13) for _ in range(k)]
-        fs, fsail, fweb = [], [], []
-        for t in ts:
-            shapes = []
-            for i in range(k):
-                ph = TAU * t - i * 0.5
-                a = math.radians(base_ang[i] + 8 * math.sin(ph))
-                shapes.append(ray_shape(bases[i][0], bases[i][1], a, lens[i], 0.2 * math.sin(ph - 1.3)))
-            fs.append("".join(smooth([sh(0), sh(0.35), sh(0.7), sh(1.0)]) for sh in shapes))
-            sails, webs = [], []
-            for i, sh in enumerate(shapes):
-                W = sail_w[i]
 
-                def flow(f):  # wave running up the flag
-                    return 5 * f * math.sin(TAU * (2.2 * f - 2 * t) + i * 0.9)
+        def P(i, f, w=0.0):
+            a = angs[i]
+            x, y = bases[i][0] + f * lens[i] * math.cos(a), bases[i][1] + f * lens[i] * math.sin(a)
+            return (x + math.sin(a) * w, y - math.cos(a) * w)  # w > 0: trailing side
 
-                pts = [sh(0.62), sh(0.82), sh(1.0),
-                       sh(0.98, -(W * 0.45 + flow(1.0))), sh(0.94, -(W * 0.85 + flow(0.94))), sh(0.9, -(W * 0.5 + flow(0.9))),
-                       sh(0.82, -(W * 0.8 + flow(0.82))), sh(0.7, -(W * 0.55 + flow(0.7)))]
-                sails.append(smooth(pts, closed=True))
-                if i < k - 1:
-                    a, b = sh(0.8), shapes[i + 1](0.76)
-                    m = mid(a, b)
-                    ph = TAU * t - i * 0.7
-                    sag = 10 + 8 * math.sin(ph)
-                    rip = 6 * math.sin(ph + 1.3)
-                    c1 = (a[0] + (m[0] - a[0]) * 0.6, a[1] + (m[1] - a[1]) * 0.6 + sag + rip)
-                    c2 = (b[0] + (m[0] - b[0]) * 0.6, b[1] + (m[1] - b[1]) * 0.6 + sag - rip)
-                    webs.append(f"M{pt(bases[i])}L{pt(a)}C{pt(c1)} {pt(c2)} {pt(b)}L{pt(bases[i + 1])}Z")
-            fsail.append("".join(sails))
-            fweb.append("".join(webs))
-        return (
-            f'<path d="{fweb[0]}" fill="url(#{uid}sl)" fill-opacity=".8">{anim_d(fweb, B)}</path>'
-            f'<path d="{fsail[0]}" fill="url(#{uid}sl)">{anim_d(fsail, B)}</path>'
-            + banded(f"{uid}rd", fs, 2.4)
-        )
+        out = []
+        for i in range(k):
+            W = rnd.uniform(9, 13)
+            web = ""
+            if i < k - 1:
+                a, b = P(i, 0.8), P(i + 1, 0.76)
+                m = mid(a, b)
+                c1 = (a[0] + (m[0] - a[0]) * 0.6, a[1] + (m[1] - a[1]) * 0.6 + 12)
+                c2 = (b[0] + (m[0] - b[0]) * 0.6, b[1] + (m[1] - b[1]) * 0.6 + 8)
+                web = f'<path d="M{pt(bases[i])}L{pt(a)}C{pt(c1)} {pt(c2)} {pt(b)}L{pt(bases[i + 1])}Z" fill="url(#{uid}sl)" fill-opacity=".8"/>'
+            flag = smooth([P(i, 0.62), P(i, 0.82), P(i, 1.0), P(i, 0.98, W * 0.45), P(i, 0.94, W * 0.85), P(i, 0.9, W * 0.5),
+                           P(i, 0.82, W * 0.8), P(i, 0.7, W * 0.55)], closed=True)
+            jx, jy = P(i, 0.62)
+            spine = f"M{pt(bases[i])}L{pt(P(i, 1.0))}"
+            out.append(
+                f"<g>{osc(7, -i * 0.5, bases[i][0], bases[i][1], B)}{web}"
+                f'<path d="{spine}" fill="none" stroke="{s["spine"]}" stroke-width="2.4" stroke-linecap="round"/>'
+                f'<path d="{spine}" fill="none" stroke="{s["stripe"]}" stroke-width="2.55" stroke-dasharray="9 7" stroke-dashoffset="{(i * 5.3) % 16:.1f}"/>'
+                f'<g>{osc(9, -i * 0.5 - 1.2, jx, jy, B)}<path d="{flag}" fill="url(#{uid}sl)"/></g></g>'
+            )
+        return "".join(out)
 
-    # ---- translucent soft fins (soft dorsal, anal, caudal): they undulate
+    # ---- translucent soft fins (soft dorsal, anal, caudal) with dotted rays,
+    # in two jointed halves that swing with a lag
     def soft_fin(key, cx, cy, a0, a1, rays, L, amp, speed):
-        fm, fr = [], []
-        for t in ts:
-            tips, rr = [], []
-            for i in range(rays):
-                ph = TAU * speed * t - i * 0.45
-                a = math.radians(a0 + (a1 - a0) * i / (rays - 1) + amp * math.sin(ph))
-                sh = ray_shape(cx, cy, a, L, 0.28 * math.sin(ph - 1.2))
-                tips.append(sh(1.0))
-                rr.append(smooth([sh(0), sh(0.5), sh(1.0)]))
-            fm.append(smooth([(cx, cy)] + tips, closed=True))
-            fr.append("".join(rr))
-        rid = f"{uid}sf{key}"
-        defs.append(f'<path id="{rid}" d="{fr[0]}">{anim_d(fr, B)}</path>')
-        return (f'<path d="{fm[0]}" fill="url(#{uid}md)">{anim_d(fm, B)}</path>'
-                f'<use href="#{rid}" stroke="{s["spine"]}" stroke-width=".7" stroke-opacity=".7" fill="none"/>'
-                f'<use href="#{rid}" stroke="{s["stripe"]}" stroke-width="2.6" stroke-dasharray=".1 7" stroke-linecap="round" stroke-opacity=".8" fill="none"/>')
+        angs = [math.radians(a0 + (a1 - a0) * i / (rays - 1)) for i in range(rays)]
+        inner_tips = [(cx + 0.5 * L * math.cos(a), cy + 0.5 * L * math.sin(a)) for a in angs]
+        outer_tips = [(cx + L * math.cos(a), cy + L * math.sin(a)) for a in angs]
+        jx, jy = mid(inner_tips[0], inner_tips[-1])
+        inner = smooth([(cx, cy)] + inner_tips, closed=True)
+        outer = smooth(inner_tips[::-1] + outer_tips, closed=True)
+        rays_in = "".join(f"M{n(cx)} {n(cy)}L{pt(p)}" for p in inner_tips)
+        rays_out = "".join(f"M{pt(a)}L{pt(b)}" for a, b in zip(inner_tips, outer_tips))
+
+        def ray_paths(d):
+            return (f'<path d="{d}" stroke="{s["spine"]}" stroke-width=".7" stroke-opacity=".7" fill="none"/>'
+                    f'<path d="{d}" stroke="{s["stripe"]}" stroke-width="2.6" stroke-dasharray=".1 7" stroke-linecap="round" stroke-opacity=".8" fill="none"/>')
+        return (f"<g>{osc(amp * 0.6, 0, cx, cy, B)}"
+                f'<path d="{inner}" fill="url(#{uid}md)"/>{ray_paths(rays_in)}'
+                f"<g>{osc(amp, -1.1, jx, jy, B)}"
+                f'<path d="{outer}" fill="url(#{uid}md)"/>{ray_paths(rays_out)}</g></g>')
 
     caudal = soft_fin("c", -86, 0, 140, 220, 11, 52, 10, 1)
     soft_dorsal = soft_fin("d", -44, -30, 195, 255, 9, 46, 7, 1)
@@ -520,10 +510,10 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
 
     # ---- mystic aura that breathes with the fins, a rim light and sparkles
     aura = (
-        f'<ellipse cx="0" cy="18" rx="150" ry="130" fill="url(#{uid}a)" opacity=".5">'
-        f'<animate attributeName="opacity" values=".45;1;.45" dur="{n(B)}s" repeatCount="indefinite" {PK}/>'
-        f'<animate attributeName="rx" values="140;172;140" dur="{n(B)}s" repeatCount="indefinite" {PK}/>'
-        f'<animate attributeName="ry" values="120;150;120" dur="{n(B)}s" repeatCount="indefinite" {PK}/></ellipse>'
+        f'<g transform="translate(0 18)"><g>'
+        f'<animateTransform attributeName="transform" type="scale" values="1;1.22;1" dur="{n(B)}s" repeatCount="indefinite" {PK}/>'
+        f'<ellipse rx="140" ry="120" fill="url(#{uid}a)" opacity=".5">'
+        f'<animate attributeName="opacity" values=".45;1;.45" dur="{n(B)}s" repeatCount="indefinite" {PK}/></ellipse></g></g>'
     )
     sparkles = "".join(
         f'<circle cx="{n(rnd.uniform(-120, 130))}" cy="{n(rnd.uniform(-120, 120))}" r="{n(rnd.uniform(1, 2.2))}" fill="{s["rim"]}" opacity="0">'
@@ -531,8 +521,8 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
         for _ in range(9)
     )
     rim = (
-        f'<path d="{body}" fill="none" stroke="{s["rim"]}" stroke-width="5" stroke-opacity=".16">'
-        f'<animate attributeName="stroke-opacity" values=".08;.35;.08" dur="{n(B)}s" repeatCount="indefinite" {PK}/></path>'
+        f'<path d="{body}" fill="none" stroke="{s["rim"]}" stroke-width="5" stroke-opacity=".35" opacity=".3">'
+        f'<animate attributeName="opacity" values=".25;1;.25" dur="{n(B)}s" repeatCount="indefinite" {PK}/></path>'
     )
 
     far_pec = pectoral("f", 36, 12, 120, 215, 10, 112, 62, 0.1, 0.5)
@@ -556,38 +546,35 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
 
 
 def ray_def(uid: str, rnd: random.Random, s: dict, flap: float = 6.5) -> str:
+    """Eagle ray / manta seen from above. The wing beat is a scale transform
+    (the span narrows on the up- and downstroke), the tail a jointed chain."""
     R = flap
-    F = 10
-    frames, tails = [], []
-    lead = [(0.33, 40, -42), (0.66, 12, -86), (1.0, -18, -128), (1.0, -18, -128)]
-    trail = [(0.66, -30, -72), (0.33, -46, -38)]
-    for fi in range(F):
-        t = fi / F
-
-        def shift(sv, x, y):
-            fv = math.sin(TAU * (t - 0.16 * sv))
-            return (x - 30 * sv * fv, y * (1 - 0.22 * sv * fv * fv) - 6 * sv * fv)
-
-        topp = [(72, -5), (62, -20)] + [shift(*p) for p in lead] + [shift(*p) for p in trail] + [(-54, -14), (-63, -4)]
-        bottom = [(x, -y) for x, y in reversed(topp)]
-        frames.append(smooth(topp + bottom, closed=True))
-        pts = [(-62 - 34 * j, 8 * math.sin(TAU * (0.45 * j / 6 - t))) for j in range(7)]
-        tails.append(smooth(pts))
+    tx, ty, lead = -14, 120, 0.62
+    body = (f"M68-8Q74-18 60-22C42-32 12-{n(ty * lead)} {n(tx)}-{n(ty)}"
+            f"C{n(tx - 12)}-{n(ty - 12)}-30-42-52-14L-62 0L-52 14"
+            f"C-30 42 {n(tx - 12)} {n(ty - 12)} {n(tx)} {n(ty)}C12 {n(ty * lead)} 42 32 60 22Q74 18 68 8Z")
+    tail, closes = "", ""
+    x = -62
+    for k in range(4):
+        tail += f'<g>{osc(6 + 4 * k, -k * 0.9, x, 0, R)}<path d="M{x} 0Q{x - 17} {(-1) ** k * 3} {x - 34} 0"/>'
+        closes += "</g>"
+        x -= 34
     spots = "".join(f'<circle cx="{n(rnd.uniform(-40, 30))}" cy="{n(sg * rnd.uniform(14, 60))}" r="{n(rnd.uniform(1.6, 3.4))}"/>' for sg in (-1, 1) for _ in range(7))
     spots_op = f'<animate attributeName="opacity" values=".35;1;.35" dur="{n(R)}s" repeatCount="indefinite"/>' if s.get("neon") else ""
+    beat = (f'<animateTransform attributeName="transform" type="scale" additive="sum" values="1 1;1.04 .78;1 1;1.02 .9;1 1" '
+            f'dur="{n(R)}s" repeatCount="indefinite"/>')
     return (
         f'<g id="{uid}"><g>'
-        f"{anim_sc([(1, 1), (1.03, 0.9), (1, 1)], R / 2, ' ' + EASE)}"
         + glow(s["glow"], 0, 0, (95, 130), s["glow_op"], R / 2, EASE, rx_scale=0.7)
-        + f'<path d="{tails[0]}" fill="none" stroke="{s["edge"]}" stroke-width="2.4" stroke-opacity=".75" stroke-linecap="round">{anim_d(tails, R)}</path>'
-        f'<defs><path id="{uid}b" d="{frames[0]}">{anim_d(frames, R)}</path>'
-        f'<linearGradient id="{uid}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{s["wing"]}"/><stop offset=".5" stop-color="{s["back"]}"/><stop offset="1" stop-color="{s["wing"]}"/></linearGradient></defs>'
-        f'<use href="#{uid}b" fill="url(#{uid}g)" fill-opacity="{s["body_op"]:g}"/>'
-        + (f'<use href="#{uid}b" fill="none" stroke="{s["edge"]}" stroke-width="7" stroke-opacity=".12"/>' if s.get("neon") else "")
-        + f'<use href="#{uid}b" fill="none" stroke="{s["edge"]}" stroke-width="1.2" stroke-opacity=".85"/>'
+        + f'<g fill="none" stroke="{s["edge"]}" stroke-width="2.4" stroke-opacity=".75" stroke-linecap="round">{tail}{closes}</g>'
+        f'<defs><linearGradient id="{uid}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{s["wing"]}"/><stop offset=".5" stop-color="{s["back"]}"/><stop offset="1" stop-color="{s["wing"]}"/></linearGradient></defs>'
+        f"<g>{beat}"
+        f'<path d="{body}" fill="url(#{uid}g)" fill-opacity="{s["body_op"]:g}"/>'
+        + (f'<path d="{body}" fill="none" stroke="{s["edge"]}" stroke-width="7" stroke-opacity=".12"/>' if s.get("neon") else "")
+        + f'<path d="{body}" fill="none" stroke="{s["edge"]}" stroke-width="1.2" stroke-opacity=".85"/>'
         f'<path d="M62 0L-50 0" stroke="{s["edge"]}" stroke-width=".8" stroke-opacity=".35"/>'
         f'<ellipse cx="36" cy="-15" rx="12" ry="6" fill="{s["patch"]}" opacity=".55"/><ellipse cx="36" cy="15" rx="12" ry="6" fill="{s["patch"]}" opacity=".55"/>'
-        f'<g fill="{s["spot"]}">{spots_op}{spots}</g>'
+        f'<g fill="{s["spot"]}">{spots_op}{spots}</g></g>'
         "</g></g>"
     )
 
@@ -598,53 +585,51 @@ def ray_def(uid: str, rnd: random.Random, s: dict, flap: float = 6.5) -> str:
 
 
 def dancer_def(uid: str, rnd: random.Random, s: dict, wave: float = 1.7) -> str:
-    """Side view of a swimming Spanish dancer: the wide mantle skirts roll in a
-    travelling wave, edged by a white, finely ruffled frill."""
+    """Side view of a swimming Spanish dancer. The rolling mantle is built from
+    two skirts that flap (scale) in opposite phase while the body sways (skew)."""
     W = wave
-    F = 8
     K = 12
-    frames, ruffles = [], []
-    for fi in range(F):
-        t = fi / F
-        topp, bot, rt, rb = [], [], [], []
-        for j in range(K):
-            x = 60 - 120 * j / (K - 1)
+
+    def edge(sign, a_scale):
+        pts = []
+        for jq in range(K):
+            x = 60 - 120 * jq / (K - 1)
             e = math.sqrt(max(0.0, 1 - (x / 62) ** 2))
-            a = 24 * (0.3 + 0.7 * (1 - abs(x) / 62))
-            w = math.sin(TAU * (x / 75 - t))
-            y = -9 * e - a * (0.55 + 0.45 * w)
-            topp.append((x, y))
-            rt.append((x, y + 3 + 1.6 * math.sin(TAU * (x / 14 - 2 * t))))
-        for j in range(K):
-            x = -60 + 120 * j / (K - 1)
-            e = math.sqrt(max(0.0, 1 - (x / 62) ** 2))
-            a = 24 * (0.3 + 0.7 * (1 - abs(x) / 62))
-            w = math.sin(TAU * (x / 75 - t) + math.pi * 0.85)
-            y = 9 * e + a * (0.55 + 0.45 * w)
-            bot.append((x, y))
-            rb.append((x, y - 3 + 1.6 * math.sin(TAU * (x / 14 - 2 * t))))
-        frames.append(smooth(topp + bot, closed=True))
-        ruffles.append(smooth(rt) + smooth(rb))
-    petals = "".join(
-        f'<ellipse cx="0" cy="-8" rx="2.8" ry="8" transform="rotate({a})"/>' for a in range(-75, 76, 25)
-    )
+            a = 24 * (0.3 + 0.7 * (1 - abs(x) / 62)) * a_scale
+            w = math.sin(TAU * x / 75 + (0 if sign < 0 else math.pi * 0.85))
+            pts.append((x, sign * (9 * e + a * (0.55 + 0.45 * w))))
+        return pts
+
+    top, bot = edge(-1, 1), edge(1, 1)
+    upper = smooth(top + [(x, 0) for x, _ in top[::-1]], closed=True)
+    lower = smooth(bot + [(x, 0) for x, _ in bot[::-1]], closed=True)
+    ruffle_t = smooth([(x, y + 3 + 1.6 * math.sin(x / 14 * TAU)) for x, y in top])
+    ruffle_b = smooth([(x, y - 3 + 1.6 * math.sin(x / 14 * TAU)) for x, y in bot])
+    petals = "".join(f'<ellipse cx="0" cy="-8" rx="2.8" ry="8" transform="rotate({a})"/>' for a in range(-75, 76, 25))
     spots = "".join(f'<circle cx="{n(rnd.uniform(-45, 45))}" cy="{n(rnd.uniform(-9, 9))}" r="{n(rnd.uniform(1, 2.4))}"/>' for _ in range(14))
+    neon_w = (lambda d: f'<path d="{d}" fill="none" stroke="{s["frill"]}" stroke-width="8" stroke-opacity=".15"/>') if s.get("neon") else (lambda d: "")
+
+    def skirt(d, ruffle, phase):
+        flap = (f'<animateTransform attributeName="transform" type="scale" additive="sum" '
+                f'values="{";".join(f"1 {0.62 + 0.38 * (0.5 + 0.5 * math.sin(TAU * i / 12 + phase)):.2f}" for i in range(13))}" '
+                f'dur="{n(W)}s" repeatCount="indefinite"/>')
+        return (f"<g>{flap}<path d=\"{d}\" fill=\"url(#{uid}g)\" fill-opacity=\"{s['body_op']:g}\"/>{neon_w(d)}"
+                f'<path d="{d}" fill="none" stroke="{s["frill"]}" stroke-width="3.2" stroke-opacity=".95"/>'
+                f'<path d="{ruffle}" fill="none" stroke="{s["frill"]}" stroke-width="1" stroke-opacity=".6"/></g>')
+
     return (
         f'<g id="{uid}"><g>'
         f"{anim_tr([(0, 0), (4, -3), (0, 0)], W, ' ' + EASE)}"
         + glow(s["glow"], 0, 0, (75, 100), s["glow_op"], W, EASE, rx_scale=1.3)
-        + f'<defs><path id="{uid}m" d="{frames[0]}">{anim_d(frames, W)}</path>'
-        f'<radialGradient id="{uid}g" r=".62"><stop offset="0" stop-color="{s["core"]}"/><stop offset=".7" stop-color="{s["mantle"]}"/>'
+        + f'<defs><radialGradient id="{uid}g" r=".62"><stop offset="0" stop-color="{s["core"]}"/><stop offset=".7" stop-color="{s["mantle"]}"/>'
         f'<stop offset="1" stop-color="{s["mantle"]}" stop-opacity=".85"/></radialGradient></defs>'
-        f'<use href="#{uid}m" fill="url(#{uid}g)" fill-opacity="{s["body_op"]:g}"/>'
-        + (f'<use href="#{uid}m" fill="none" stroke="{s["frill"]}" stroke-width="8" stroke-opacity=".15"/>' if s.get("neon") else "")
-        + f'<use href="#{uid}m" fill="none" stroke="{s["frill"]}" stroke-width="3.2" stroke-opacity=".95"/>'
-        f'<path d="{ruffles[0]}" fill="none" stroke="{s["frill"]}" stroke-width="1" stroke-opacity=".6">{anim_d(ruffles, W)}</path>'
-        f'<ellipse rx="44" ry="8" fill="{s["core"]}" opacity=".45"/>'
+        f'<g>{osc(7, 0, 0, 0, W, kind="skewX")}'
+        + skirt(upper, ruffle_t, 0) + skirt(lower, ruffle_b, math.pi)
+        + f'<ellipse rx="44" ry="8" fill="{s["core"]}" opacity=".6"/>'
         f'<g fill="{s["frill"]}" opacity=".35">{spots}</g>'
         f'<g transform="translate(-44 -9)" fill="{s["gill"]}" opacity=".92">{anim_sc([(1, 1), (1.25, 1.2), (1, 1)], W, " " + EASE)}{petals}</g>'
         f'<path d="M46-8Q48-21 44-26M53-7Q57-19 55-24" stroke="{s["mantle"]}" stroke-width="3.2" fill="none" stroke-linecap="round"/>'
-        f'<circle cx="44" cy="-26" r="2" fill="{s["frill"]}"/><circle cx="55" cy="-24" r="2" fill="{s["frill"]}"/>'
+        f'<circle cx="44" cy="-26" r="2" fill="{s["frill"]}"/><circle cx="55" cy="-24" r="2" fill="{s["frill"]}"/></g>'
         "</g></g>"
     )
 

@@ -220,34 +220,35 @@ def reef_layer(rnd, xs, y, base, colors, scale_range, sway, thin=1.0) -> str:
 
 
 def caustics_block(png_b64: str, tile: int, opacity: float, fade_stops: str, dur: float = 30) -> str:
-    """Three caustic layers drifting across each other -> shimmering interference."""
-    return f"""
-<defs>
- <pattern id="c1" patternUnits="userSpaceOnUse" width="{tile}" height="{tile}">
-  <image href="data:image/png;base64,{png_b64}" width="{tile}" height="{tile}"/>
-  <animateTransform attributeName="patternTransform" type="translate" from="0 0" to="{tile} {tile}" dur="{f(dur)}s" repeatCount="indefinite"/>
- </pattern>
- <pattern id="c2" href="#c1" patternTransform="rotate(31) scale(1.55)">
-  <animateTransform attributeName="patternTransform" type="translate" additive="sum" from="0 0" to="{-tile} {tile}" dur="{f(dur * 1.37)}s" repeatCount="indefinite"/>
- </pattern>
- <pattern id="c3" href="#c1" patternTransform="rotate(-58) scale(.82)">
-  <animateTransform attributeName="patternTransform" type="translate" additive="sum" from="0 0" to="{tile} {-tile}" dur="{f(dur * 0.83)}s" repeatCount="indefinite"/>
- </pattern>
- <linearGradient id="cf" x1="0" y1="0" x2="0" y2="1">{fade_stops}</linearGradient>
- <mask id="cm" maskUnits="userSpaceOnUse" x="0" y="0" width="{VIEW_W}" height="{VIEW_H}"><rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#cf)"/></mask>
-</defs>
-<g mask="url(#cm)" opacity="{opacity:g}">
- <animate attributeName="opacity" values="{opacity * 0.7:.3f};{opacity:.3f};{opacity * 0.8:.3f};{opacity:.3f};{opacity * 0.7:.3f}" dur="4.7s" repeatCount="indefinite"/>
- <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c1)" opacity=".7">
-  <animate attributeName="opacity" values=".45;.85;.45" dur="3.1s" repeatCount="indefinite"/>
- </rect>
- <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c2)" opacity=".6">
-  <animate attributeName="opacity" values=".7;.3;.7" dur="3.9s" repeatCount="indefinite"/>
- </rect>
- <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c3)" opacity=".45">
-  <animate attributeName="opacity" values=".2;.6;.2" dur="2.6s" repeatCount="indefinite"/>
- </rect>
-</g>"""
+    """Three caustic layers drifting across each other -> shimmering interference.
+
+    The patterns are static; the rectangles they fill are moved by exactly one
+    lattice vector of their pattern per loop, so the drift is seamless. (Only
+    transform and opacity animations, which every engine supports.)"""
+    layers = [("c1", "", 1.0, 0, 1.0, 0.7, ".45;.85;.45", 3.1),
+              ("c2", "rotate(31) scale(1.55)", 1.55, 31, 1.37, 0.6, ".7;.3;.7", 3.9),
+              ("c3", "rotate(-58) scale(.82)", 0.82, -58, 0.83, 0.45, ".2;.6;.2", 2.6)]
+    defs = [f'<pattern id="c1" patternUnits="userSpaceOnUse" width="{tile}" height="{tile}">'
+            f'<image href="data:image/png;base64,{png_b64}" width="{tile}" height="{tile}"/></pattern>']
+    rects = []
+    for pid, tf, sc, rot, speed, op, flick, fdur in layers:
+        if tf:
+            defs.append(f'<pattern id="{pid}" href="#c1" patternTransform="{tf}"/>')
+        a = math.radians(rot)
+        vx, vy = tile * sc * math.cos(a), tile * sc * math.sin(a)  # one lattice vector
+        m = int(tile * sc * 1.5) + 2
+        rects.append(
+            f'<rect x="{-m}" y="{-m}" width="{VIEW_W + 2 * m}" height="{VIEW_H + 2 * m}" fill="url(#{pid})" opacity="{op:g}">'
+            f'<animateTransform attributeName="transform" type="translate" values="0 0;{f(vx)} {f(vy)}" dur="{f(dur * speed)}s" repeatCount="indefinite"/>'
+            f'<animate attributeName="opacity" values="{flick}" dur="{fdur}s" repeatCount="indefinite"/></rect>'
+        )
+    return (
+        f'<defs>{"".join(defs)}<linearGradient id="cf" x1="0" y1="0" x2="0" y2="1">{fade_stops}</linearGradient>'
+        f'<mask id="cm" maskUnits="userSpaceOnUse" x="0" y="0" width="{VIEW_W}" height="{VIEW_H}"><rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#cf)"/></mask></defs>'
+        f'<g mask="url(#cm)" opacity="{opacity:g}">'
+        f'<animate attributeName="opacity" values="{opacity * 0.7:.3f};{opacity:.3f};{opacity * 0.8:.3f};{opacity:.3f};{opacity * 0.7:.3f}" dur="4.7s" repeatCount="indefinite"/>'
+        + "".join(rects) + "</g>"
+    )
 
 
 def rays_block(color: str, strength: float) -> str:

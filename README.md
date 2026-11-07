@@ -72,6 +72,16 @@ The background and the hairlines animate with SVG (SMIL), drawn by the browser. 
 
 The theme file is about 800 KB, because the backgrounds are built into it (once per theme). Home Assistant sends it compressed, about 200 KB, once per connection.
 
+## Companion apps
+
+The Home Assistant apps show the same frontend in a web view: the iPhone, iPad and Mac app use Apple's WKWebView (WebKit, the engine of Safari), the Android app uses Android System WebView (Chromium). The background is an animated SVG image that uses only transform, opacity and motion animations, which both engines support.
+
+If the background stands still in the app:
+
+- **iPhone and iPad:** turn on *Settings* > *Accessibility* > *Motion* > *Auto-Play Animated Images*. With it off, WebKit pauses all animated images, in Safari and in apps. Low Power Mode can pause them too.
+- **Mac:** the same switch is in *System Settings* > *Accessibility* > *Display* > *Auto-play animated images*.
+- **Android:** update *Android System WebView* in the Play Store.
+
 ## Customize
 
 `themes/reef.yaml` is generated. To change colours, the background, or the strength of the glass, edit [`tools/build.py`](tools/build.py) and run:
