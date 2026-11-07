@@ -316,48 +316,62 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
 
         return at
 
-    # ---- pectoral fins: feather blades that open and close slowly like a fan,
-    # a wave flows through them, each blade curls behind like the hem of a dress
+    # ---- pectoral fins: feather blades that open and close like a fan. Driven by
+    # rotations (supported everywhere, cheap): each blade turns around the fin
+    # base with a phase delay (a wave flows through the fan), and its outer half
+    # turns around a joint, so the blade curls behind like the hem of a dress.
     def pectoral(key, cx, cy, a0, a1, rays, lmax, lmin, phase, op):
         base = [a0 + (a1 - a0) * i / (rays - 1) for i in range(rays)]
         lens = [(lmin + (lmax - lmin) * math.sin(math.pi * (0.1 + 0.85 * i / (rays - 1)))) * rnd.uniform(0.94, 1.06) for i in range(rays)]
         widths = [rnd.uniform(9, 13) for _ in range(rays)]
         amid = (a0 + a1) / 2
-        fb, fr = [], []
-        for t in ts:
-            ph0 = TAU * (t + phase)
-            open_ = 0.5 + 0.5 * math.sin(ph0)
-            blades, rays_d = [], []
-            for i in range(rays):
-                phi = ph0 - i * 0.55
-                a = math.radians(amid + (base[i] - amid) * (0.55 + 0.6 * open_) + 13 * math.sin(phi) + 10 * (open_ - 0.5))
-                bend = 0.5 * math.sin(phi - 1.4)
-                L = lens[i] * (0.92 + 0.12 * open_)
-                W = widths[i] * (0.82 + 0.32 * open_)
-                at = ray_shape(cx, cy, a, L, bend)
-
-                def flutter(f):
-                    return 2.6 * f * math.sin(TAU * (2 * f - 2 * t) + i)
-
-                pts = [at(0.04), at(0.3), at(0.62), at(1.0),
-                       at(0.97, W * 0.35 + flutter(0.97)), at(0.9, W * 0.95 + flutter(0.9)), at(0.84, W * 0.6 + flutter(0.84)),
-                       at(0.74, W + flutter(0.74)), at(0.5, W * 0.9 + flutter(0.5)), at(0.26, W * 0.55)]
-                blades.append(smooth(pts, closed=True))
-                rays_d.append(smooth([at(0), at(0.35), at(0.7), at(1.0)]))
-            fb.append("".join(blades))
-            fr.append("".join(rays_d))
         gid = f"{uid}b{key}"
         defs.append(
             f'<radialGradient id="{gid}" gradientUnits="userSpaceOnUse" cx="{n(cx)}" cy="{n(cy)}" r="{n(lmax)}">'
             f'<stop offset="0" stop-color="{s["blade_in"]}" stop-opacity=".95"/><stop offset=".62" stop-color="{s["blade_in"]}" stop-opacity=".82"/>'
             f'<stop offset=".82" stop-color="{s["blade_out"]}" stop-opacity=".75"/><stop offset="1" stop-color="{s["blade_out"]}" stop-opacity=".95"/></radialGradient>'
         )
-        return (
-            f'<g opacity="{op:g}">'
-            f'<path d="{fb[0]}" fill="url(#{gid})" stroke="{s["blade_out"]}" stroke-width=".6" stroke-opacity=".5">{anim_d(fb, B)}</path>'
-            + banded(f"{uid}r{key}", fr, 1.4)
-            + "</g>"
-        )
+        samples = [i / 12 for i in range(13)]
+        out = [f'<g opacity="{op:g}" fill="url(#{gid})">']
+        for i in range(rays):
+            mean = amid + (base[i] - amid) * 0.9
+            a = math.radians(mean)
+            L, W = lens[i], widths[i]
+            ux, uy = math.cos(a), math.sin(a)
+            px, py = -uy, ux
+
+            def on(f):
+                return (cx + ux * f * L, cy + uy * f * L)
+
+            def off(f, w):
+                x, y = on(f)
+                return (x + px * w, y + py * w)
+
+            inner = smooth([on(0.04), on(0.32), on(0.64), off(0.64, W * 0.95), off(0.5, W * 0.9), off(0.26, W * 0.55)], closed=True)
+            outer = smooth([on(0.55), on(0.8), on(1.0), off(0.97, W * 0.35), off(0.9, W * 0.95), off(0.84, W * 0.6),
+                            off(0.74, W), off(0.56, W * 0.95)], closed=True)
+            jx, jy = on(0.58)
+            ray_in = f"M{n(cx)} {n(cy)}L{pt(on(0.6))}"
+            ray_out = f"M{pt(on(0.56))}L{pt(on(1.04))}"
+            rot_a, rot_b = [], []
+            for t in samples:
+                ph0 = TAU * (t + phase)
+                phi = ph0 - 1.6 - i * 0.6
+                # fan opens and closes (edges sweep most) + a wave running through it
+                rot_a.append((base[i] - amid) * 0.42 * math.sin(ph0) + 13 * math.sin(phi))
+                rot_b.append(28 * math.sin(phi - 1.3))
+            va = ";".join(f"{n(r)} {n(cx)} {n(cy)}" for r in rot_a)
+            vb = ";".join(f"{n(r)} {n(jx)} {n(jy)}" for r in rot_b)
+            band = lambda d, w: (f'<path d="{d}" fill="none" stroke="{s["spine"]}" stroke-width="{w:g}" stroke-linecap="round"/>'
+                                 f'<path d="{d}" fill="none" stroke="{s["stripe"]}" stroke-width="{w + 0.15:g}" stroke-dasharray="9 7" stroke-dashoffset="{(i * 5.3) % 16:.1f}"/>')
+            out.append(
+                f'<g><animateTransform attributeName="transform" type="rotate" values="{va}" dur="{n(B)}s" repeatCount="indefinite"/>'
+                f'<path d="{inner}" stroke="{s["blade_out"]}" stroke-width=".6" stroke-opacity=".4"/>{band(ray_in, 1.4)}'
+                f'<g><animateTransform attributeName="transform" type="rotate" values="{vb}" dur="{n(B)}s" repeatCount="indefinite"/>'
+                f'<path d="{outer}" stroke="{s["blade_out"]}" stroke-width=".6" stroke-opacity=".5"/>{band(ray_out, 1.4)}</g></g>'
+            )
+        out.append("</g>")
+        return "".join(out)
 
     # ---- dorsal spines: a slow wave runs from head to tail, the spines flex,
     # the sails between them billow and their edges ripple
