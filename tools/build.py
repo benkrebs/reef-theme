@@ -21,6 +21,13 @@ import struct
 import zlib
 from pathlib import Path
 
+sys_path = str(Path(__file__).resolve().parent)
+import sys  # noqa: E402
+
+if sys_path not in sys.path:
+    sys.path.insert(0, sys_path)
+import reef_art as art  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 THEME_FILE = ROOT / "themes" / "reef.yaml"
 ASSETS = ROOT / "assets"
@@ -262,56 +269,10 @@ def rays_block(color: str, strength: float) -> str:
     return "".join(out)
 
 
-def bubbles_block(rnd: random.Random, count: int, stroke: str, opacity: float, sources: list[float], y0: float, rise: tuple, size: tuple, dur: tuple) -> str:
-    """Air bubbles: thin rings that rise in a wobble and fade out (like appriff.de)."""
-    out = [f'<g fill="none" stroke="{stroke}" stroke-width="1.4">']
-    for _ in range(count):
-        x = rnd.choice(sources) + rnd.uniform(-60, 60)
-        y = y0 + rnd.uniform(-40, 30)
-        r = rnd.uniform(*size)
-        d = rnd.uniform(*dur)
-        h = rnd.uniform(*rise)
-        w = rnd.uniform(10, 26)
-        begin = -rnd.uniform(0, d)
-        path = ";".join(f"{f(w * math.sin(i * 1.7) * (i / 4))} {f(-h * i / 4)}" for i in range(5))
-        out.append(
-            f'<circle cx="{f(x)}" cy="{f(y)}" r="{r:.1f}" opacity="0">'
-            f'<animateTransform attributeName="transform" type="translate" values="{path}" dur="{f(d)}s" begin="{f(begin)}s" repeatCount="indefinite"/>'
-            f'<animate attributeName="opacity" values="0;{opacity:g};{opacity:g};0" keyTimes="0;.1;.75;1" dur="{f(d)}s" begin="{f(begin)}s" repeatCount="indefinite"/>'
-            f"</circle>"
-        )
-    out.append("</g>")
-    return "".join(out)
-
-
-def jellyfish(rnd: random.Random, x: float, y: float, scale: float, grad: str, stroke: str, dur: float) -> str:
-    """A glowing jellyfish: pulsing bell, waving tentacles, drifting up through the scene."""
-    tent = []
-    for i, tx in enumerate([-12, -6, 0, 6, 12]):
-        a, b = rnd.uniform(4, 9), rnd.uniform(4, 9)
-        l1 = rnd.uniform(40, 70)
-        d1 = f"M{tx} 0Q{tx + a} {f(l1 / 2)} {tx} {f(l1)}"
-        d2 = f"M{tx} 0Q{tx - b} {f(l1 / 2)} {tx + 3} {f(l1)}"
-        tent.append(
-            f'<path d="{d1}"><animate attributeName="d" values="{d1};{d2};{d1}" dur="{f(rnd.uniform(2.2, 3.4))}s" repeatCount="indefinite"/></path>'
-        )
-    bell = "M-20 0C-20-28 20-28 20 0C14-4 8 3 0 0C-8 3-14-4-20 0Z"
-    return (
-        f'<g transform="translate({f(x)} {f(y)})">'
-        f'<animateTransform attributeName="transform" type="translate" additive="sum" values="0 0;{f(rnd.uniform(-80, 80))} -{VIEW_H + 300}" dur="{f(dur)}s" begin="{f(-rnd.uniform(0, dur))}s" repeatCount="indefinite"/>'
-        f'<g transform="scale({scale:g})">'
-        f'<animateTransform attributeName="transform" type="scale" additive="sum" values="1 1;1.12 .86;1 1" dur="2.6s" repeatCount="indefinite"/>'
-        f'<circle r="46" cy="-6" fill="url(#{grad})" opacity=".35"/>'
-        f'<path d="{bell}" fill="url(#{grad})" stroke="{stroke}" stroke-width=".8" stroke-opacity=".7"/>'
-        f'<g fill="none" stroke="{stroke}" stroke-width=".9" stroke-opacity=".55">{"".join(tent)}</g>'
-        f"</g></g>"
-    )
-
-
-def svg_wrap(body: str, bg_stops: str) -> str:
+def svg_wrap(body: str, bg_stops: str, defs: str = "") -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEW_W} {VIEW_H}" preserveAspectRatio="xMidYMax slice">'
-        f'<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">{bg_stops}</linearGradient></defs>'
+        f'<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">{bg_stops}</linearGradient>{defs}</defs>'
         f'<rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#bg)"/>{body}</svg>'
     )
 
@@ -325,134 +286,206 @@ def stops(*pairs) -> str:
     return "".join(out)
 
 
-def background_coral(png_b64: str) -> str:
-    """Light: sunlit coral reef lagoon."""
-    rnd = random.Random(20260925)
-    body = [rays_block("#ffffff", 0.55)]
-    body.append(caustics_block(png_b64, 224, 0.72, stops((0, "#fff", 0.9), (0.5, "#fff", 0.5), (1, "#fff", 0.95))))
-    # Sunlit specks drifting in the water.
-    specks = ['<g fill="#ffffff">']
-    for _ in range(28):
-        x, y, d = rnd.uniform(0, VIEW_W), rnd.uniform(60, 820), rnd.uniform(9, 20)
+def drifting_dots(rnd: random.Random, count: int, fill_for, y_range, r_range, dur_range, move, peak_range) -> str:
+    out = []
+    for _ in range(count):
+        x, y = rnd.uniform(0, VIEW_W), rnd.uniform(*y_range)
+        d = rnd.uniform(*dur_range)
         b = -rnd.uniform(0, d)
-        specks.append(
-            f'<circle cx="{f(x)}" cy="{f(y)}" r="{rnd.uniform(1.2, 3.2):.1f}" opacity="0">'
-            f'<animate attributeName="opacity" values="0;{rnd.uniform(.5, .9):.2f};0" dur="{f(d)}s" begin="{f(b)}s" repeatCount="indefinite"/>'
-            f'<animateTransform attributeName="transform" type="translate" values="0 0;{f(rnd.uniform(-90, 90))} {f(rnd.uniform(-60, 60))}" dur="{f(d)}s" begin="{f(b)}s" repeatCount="indefinite"/>'
+        peak = rnd.uniform(*peak_range)
+        dx, dy = move(rnd)
+        out.append(
+            f'<circle cx="{f(x)}" cy="{f(y)}" r="{rnd.uniform(*r_range):.1f}" fill="{fill_for(rnd)}" opacity="0">'
+            f'<animate attributeName="opacity" values="0;{peak:.2f};{peak * 0.4:.2f};{peak:.2f};0" dur="{f(d)}s" begin="{f(b)}s" repeatCount="indefinite"/>'
+            f'<animateTransform attributeName="transform" type="translate" values="0 0;{f(dx)} {f(dy)}" dur="{f(d)}s" begin="{f(b)}s" repeatCount="indefinite"/>'
             f"</circle>"
         )
-    specks.append("</g>")
-    body.append("".join(specks))
-    # Reef: back silhouettes, muted middle, colourful front, sandy floor.
-    back = reef_layer(rnd, [80, 380, 700, 1020, 1330, 1560], 865, BIG, [("#7fcbd6", "#93d6df")], (0.75, 0.95), (2.6, 8))
-    mid = reef_layer(rnd, [220, 540, 860, 1180, 1480], 905, BIG,
-                     [("#6fd3d1", "#93e2e0"), ("#a796e8", "#bcaff0"), ("#f3a79c", "#f8c0b8"), ("#7eaff2", "#a2c6f7")], (0.62, 0.72), (3, 7))
-    front_small = reef_layer(rnd, [300, 690, 1080, 1470], 945, SMALL,
-                             [("#ff968a", "#ffb8ae"), ("#60a5f8", "#95c3ff"), ("#5ce8e6", "#8ff1ef"), ("#a07af6", "#bfa6ff")], (0.95, 1.05), (4, 5.5))
-    front = reef_layer(rnd, [120, 480, 880, 1270, 1580], 945, BIG,
-                       [("#5ce8e6", "#8ff1ef"), ("#a07af6", "#bfa6ff"), ("#ff968a", "#ffb8ae"), ("#60a5f8", "#95c3ff")], (0.95, 1.05), (3.5, 6))
-    bubbles = bubbles_block(rnd, 46, "#ffffff", 0.8, [120, 300, 480, 690, 880, 1080, 1270, 1470, 1580], 905, (380, 900), (2, 7.5), (5, 12))
-    body.append(
-        f'<g fill="none" stroke-linecap="round" opacity=".45">{back}</g>'
-        f'<path fill="#a9dfe5" fill-opacity=".8" d="M0 860 C200 835 380 850 560 842 S920 820 1100 838 S1420 848 1600 832 V1000 H0Z"/>'
-        f'<g fill="none" stroke-linecap="round" opacity=".6">{mid}</g>'
-        f'<path fill="#e6dcc0" d="M0 905 C220 885 420 900 640 892 S1000 878 1220 895 S1480 902 1600 885 V1000 H0Z"/>'
-        f'<g fill="none" stroke-linecap="round" opacity=".8">{front_small}{front}</g>'
-        f"{bubbles}"
-        f'<path fill="#f3ead5" d="M0 942 C180 928 400 936 620 930 S1000 920 1220 933 S1480 938 1600 926 V1000 H0Z"/>'
-    )
+    return "".join(out)
+
+
+def sand(path_y: list[float], colour: str, opacity: float = 1.0) -> str:
+    """Low dune strip along the very bottom."""
+    xs = [i * VIEW_W / (len(path_y) - 1) for i in range(len(path_y))]
+    d = art.smooth(list(zip(xs, path_y)))
+    op = f' fill-opacity="{opacity:g}"' if opacity < 1 else ""
+    return f'<path d="{d}V{VIEW_H}H0Z" fill="{colour}"{op}/>'
+
+
+def background_coral(png_b64: str) -> str:
+    """Light: sunlit coral reef lagoon with fish, rays, jellyfish and a Spanish dancer."""
+    rnd = random.Random(20260925)
+    defs = [
+        art.glow_gradients({"gw": "#ffffff", "gp": "#ffd3e2", "gc": "#d9fbff"}),
+        art.bubble_defs("#e6ffff"),
+        art.jellyfish_def("jm", rnd, dict(glow="gw", glow_op=(0.18, 0.42), bell="#ffffff", bell_op=0.32, rim="#ffffff", gonad="#f49ac1",
+                                          arm="#ffe4ef", arm_op=0.45, arm_edge="#ffffff", tent="#ffffff", tent_op=0.6), 3.0),
+        art.lionfish_def("lf", rnd, dict(glow="gw", glow_op=(0.06, 0.16), body="#f6e7d7", body_op=0.97, stripe="#b8362f", stripe_op=0.9,
+                                         spine="#fff6ee", membrane="#f0bfa8", membrane_op=0.5, outline="#8a2a24", eye="#1d1d1d", eye_ring="#d9a441")),
+        art.ray_def("ry", rnd, dict(glow="gc", glow_op=(0.06, 0.16), wing="#6a92b0", back="#2f4a63", body_op=0.92, edge="#21384c",
+                                    patch="#eef8fb", spot="#eef8fb")),
+        art.dancer_def("sd", rnd, dict(glow="gp", glow_op=(0.12, 0.3), mantle="#e0283f", core="#ff6b6b", body_op=0.96, frill="#fff3f0", gill="#ffffff")),
+    ]
+    body = [rays_block("#ffffff", 0.55)]
+    body.append(caustics_block(png_b64, 224, 0.72, stops((0, "#fff", 0.9), (0.5, "#fff", 0.5), (1, "#fff", 0.95))))
+    body.append(drifting_dots(rnd, 28, lambda r: "#ffffff", (60, 900), (1.2, 3.2), (9, 20),
+                              lambda r: (r.uniform(-90, 90), r.uniform(-60, 60)), (0.5, 0.9)))
+
+    # Far away: a manta gliding high above the reef, a pale back reef.
+    body.append(art.swim("ry", art.wander(rnd, (-320, 230), (1920, 330), 4, 120), 70, 25, 0.62, 0.7))
+    back = "".join([
+        reef_layer(rnd, [60, 420, 760, 1120, 1480], 996, BIG, [("#8fd3dc", "#a6dde4")], (0.55, 0.7), (2.6, 8)),
+        art.branching(rnd, 250, 996, 32, 2.4, 5, (12, 26), 0.84, "#9ad8e0", "#b4e4ea", (2, 7)),
+        art.branching(rnd, 960, 996, 30, 2.4, 5, (12, 26), 0.84, "#9ad8e0", "#b4e4ea", (2, 7)),
+        art.branching(rnd, 1300, 996, 22, 7, 4, (22, 42), 0.78, "#9ad8e0", "#b4e4ea", (1.5, 8)),
+    ])
+    body.append(f'<g fill="none" stroke-linecap="round" opacity=".45">{back}</g>')
+    body.append(sand([990, 986, 989, 984, 988, 985, 989], "#bfe6e8", 0.7))
+
+    # Jellyfish drifting in every direction.
+    body.append(art.swim("jm", art.wander(rnd, (280, 1180), (980, -320), 4, 170), 95, 40, 0.68, 0.9))
+    body.append(art.swim("jm", art.wander(rnd, (1850, 760), (-250, 120), 5, 140), 125, 90, 0.46, 0.85))
+
+    # Middle reef: muted colours.
+    mid = "".join([
+        reef_layer(rnd, [180, 540, 900, 1240, 1560], 1004, BIG,
+                   [("#6fd3d1", "#93e2e0"), ("#a796e8", "#bcaff0"), ("#f3a79c", "#f8c0b8"), ("#7eaff2", "#a2c6f7")], (0.62, 0.75), (3, 7)),
+        art.branching(rnd, 360, 1004, 42, 3.2, 6, (12, 26), 0.83, "#c49be6", "#e3cdf6", (2, 6), 1.8),
+        art.branching(rnd, 1080, 1004, 40, 3.2, 6, (12, 26), 0.83, "#f5a98c", "#ffd8c8", (2, 6), 1.8),
+        art.tube_sponge(rnd, 720, 1004, "#b9a3ef", "#7f62c4", 0.95),
+        art.anemone(rnd, 1400, 1004, "#f7a8c4", "#ffe6ef", "#d9809f", 1.05),
+    ])
+    body.append(f'<g fill="none" stroke-linecap="round" opacity=".62">{mid}</g>')
+
+    # Fish and a Spanish dancer above the reef.
+    body.append(art.swim("lf", art.wander(rnd, (1860, 560), (-260, 650), 5, 90), 95, 30, 0.45, 0.85))
+    body.append(art.swim("sd", art.wander(rnd, (1820, 400), (-220, 520), 4, 150), 90, 55, 0.75))
+    body.append(art.swim("lf", art.wander(rnd, (-260, 740), (1860, 680), 5, 80), 80, 10, 0.7))
+
+    # Front reef, rooted at the very bottom.
+    front = "".join([
+        art.seagrass(rnd, 20, 1012, 12, "#5fc9a0", (90, 190)),
+        reef_layer(rnd, [80], 1012, BIG, [("#5ce8e6", "#8ff1ef")], (1.15, 1.3), (3.5, 6)),
+        art.branching(rnd, 215, 1012, 58, 5, 6, (12, 26), 0.84, "#b678e8", "#e0b8ff", (2, 6), 2.6),
+        art.anemone(rnd, 330, 1012, "#ff8fb1", "#ffe0ea", "#d9577f", 1.6, 30, 6.5),
+        art.tube_sponge(rnd, 445, 1012, "#ff9f6e", "#a94f2e", 1.35),
+        art.brain_coral(rnd, 555, 1016, 170, 80, "#f2c46d", "#c08a3a", "#fff2c9"),
+        reef_layer(rnd, [665], 1012, BIG, [("#a07af6", "#bfa6ff")], (1.15, 1.3), (3.5, 6)),
+        art.branching(rnd, 780, 1012, 42, 14, 4, (22, 42), 0.78, "#ffb39e", "#ffe0d4", (1.5, 7), 6.5),
+        art.seagrass(rnd, 865, 1012, 16, "#5fc9a0", (90, 200)),
+        art.branching(rnd, 965, 1012, 58, 5, 6, (12, 26), 0.84, "#ff8a5c", "#ffd0b8", (2, 6), 2.6),
+        art.anemone(rnd, 1070, 1012, "#7fd8f0", "#e0faff", "#4aa3bd", 1.45, 30, 6.5),
+        reef_layer(rnd, [1175], 1012, BIG, [("#ff968a", "#ffb8ae")], (1.15, 1.3), (3.5, 6)),
+        art.tube_sponge(rnd, 1280, 1012, "#a77ef0", "#5e3fa8", 1.3),
+        art.brain_coral(rnd, 1385, 1016, 150, 70, "#c9a7f2", "#8e6ac9", "#f0e6ff"),
+        art.branching(rnd, 1480, 1012, 40, 13, 4, (22, 42), 0.78, "#7fd6c0", "#d8fff4", (1.5, 7), 6),
+        reef_layer(rnd, [1575], 1012, BIG, [("#60a5f8", "#95c3ff")], (1.15, 1.3), (3.5, 6)),
+    ])
+    body.append(f'<g fill="none" stroke-linecap="round" opacity=".88">{front}</g>')
+    body.append(art.bubbles(rnd, 38, [80, 215, 330, 445, 665, 780, 965, 1070, 1175, 1280, 1480, 1575], 990, (380, 920), (2, 8), (5, 12), 0.85))
+    body.append(sand([994, 989, 993, 987, 992, 988, 993, 989, 994], "#f3ead5"))
     return svg_wrap(
         "".join(body),
         stops((0, "#e4fafa"), (0.32, "#b9ecef"), (0.62, "#85d6e0"), (0.86, "#69c4d3"), (1, "#5fbccc")),
+        "".join(defs),
     )
 
 
 def background_abyss(png_b64: str) -> str:
-    """Dark: deep sea with bioluminescent plankton and glowing tendrils."""
+    """Dark: deep sea, bioluminescent plankton, glowing animals and flora."""
     rnd = random.Random(424242)
     glow = ["#3df5e0", "#5ce8ff", "#b57cff", "#ff5fd2", "#7dffb0"]
-    defs = ['<defs>']
+    defs = []
     for i, c in enumerate(glow):
         defs.append(
             f'<radialGradient id="g{i}"><stop offset="0" stop-color="#ffffff" stop-opacity=".95"/>'
             f'<stop offset=".18" stop-color="{c}" stop-opacity=".85"/><stop offset=".45" stop-color="{c}" stop-opacity=".22"/>'
             f'<stop offset="1" stop-color="{c}" stop-opacity="0"/></radialGradient>'
         )
-    jelly = [("jf0", "#3df5e0"), ("jf1", "#b57cff"), ("jf2", "#ff5fd2")]
-    for gid, c in jelly:
-        defs.append(
-            f'<radialGradient id="{gid}" cy=".7" r=".7"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>'
-            f'<stop offset=".35" stop-color="{c}" stop-opacity=".45"/><stop offset="1" stop-color="{c}" stop-opacity="0"/></radialGradient>'
-        )
     defs.append(
         '<radialGradient id="haze" cx=".5" cy="0" r=".9"><stop offset="0" stop-color="#1b6f9a" stop-opacity=".35"/>'
         '<stop offset="1" stop-color="#1b6f9a" stop-opacity="0"/></radialGradient>'
         '<radialGradient id="floor" cx=".5" cy="1" r=".6" gradientTransform="translate(0 .5) scale(1 .5)">'
         '<stop offset="0" stop-color="#2a8fa0" stop-opacity=".22"/><stop offset=".5" stop-color="#5b3aa8" stop-opacity=".08"/>'
-        '<stop offset="1" stop-color="#5b3aa8" stop-opacity="0"/></radialGradient></defs>'
+        '<stop offset="1" stop-color="#5b3aa8" stop-opacity="0"/></radialGradient>'
     )
+    defs += [
+        art.glow_gradients({"gc": "#3df5e0", "gv": "#b57cff", "gm": "#ff5fd2", "gb": "#5ccbff"}),
+        art.bubble_defs("#7dfff0"),
+        art.jellyfish_def("ja", rnd, dict(glow="gc", glow_op=(0.25, 0.65), bell="#3df5e0", bell_op=0.13, rim="#9ffaf0", gonad="#b57cff",
+                                          arm="#5ce8ff", arm_op=0.22, arm_edge="#9ffaf0", tent="#7dfff0", tent_op=0.7, neon=True), 2.6),
+        art.jellyfish_def("jb", rnd, dict(glow="gv", glow_op=(0.22, 0.6), bell="#b57cff", bell_op=0.14, rim="#e0c8ff", gonad="#ff5fd2",
+                                          arm="#cfa8ff", arm_op=0.22, arm_edge="#e0c8ff", tent="#cfa8ff", tent_op=0.7, neon=True), 3.4),
+        art.lionfish_def("lf", rnd, dict(glow="gm", glow_op=(0.12, 0.32), body="#1a0b26", body_op=0.78, stripe="#ff5fd2", stripe_op=0.85,
+                                         spine="#9ef2ff", membrane="#ff5fd2", membrane_op=0.18, outline="#ff9be4", eye="#020a14", eye_ring="#3df5e0")),
+        art.ray_def("ry", rnd, dict(glow="gb", glow_op=(0.1, 0.3), wing="#0a3a55", back="#041a2b", body_op=0.82, edge="#5ccbff",
+                                    patch="#3df5e0", spot="#9ef2ff", neon=True)),
+        art.dancer_def("sd", rnd, dict(glow="gm", glow_op=(0.2, 0.5), mantle="#ff2d75", core="#ff8fb1", body_op=0.78, frill="#ffd0e8",
+                                       gill="#ffe6f2", neon=True)),
+    ]
     body = [
-        "".join(defs),
         f'<rect width="{VIEW_W}" height="{VIEW_H * 0.7:g}" fill="url(#haze)"/>',
         f'<rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#floor)"/>',
+        rays_block("#8fe9ff", 0.12),
+        caustics_block(png_b64, 260, 0.13, stops((0, "#fff", 1), (0.3, "#fff", 0.25), (0.55, "#fff", 0))),
     ]
-    # Faint light from far above.
-    body.append(rays_block("#8fe9ff", 0.12))
-    body.append(caustics_block(png_b64, 260, 0.13, stops((0, "#fff", 1), (0.3, "#fff", 0.25), (0.55, "#fff", 0))))
-    # Jellyfish drifting up through the deep.
-    body.append(
-        '<g opacity=".75">'
-        + jellyfish(rnd, 330, VIEW_H + 160, 2.6, "jf0", "#7dfff0", 75)
-        + jellyfish(rnd, 1050, VIEW_H + 160, 1.9, "jf1", "#cfa8ff", 98)
-        + jellyfish(rnd, 1420, VIEW_H + 160, 1.4, "jf2", "#ff9be4", 120)
-        + "</g>"
-    )
+    # Far-away bokeh.
+    body.append(drifting_dots(rnd, 9, lambda r: f"url(#g{r.choice([0, 1, 2, 2, 3])})", (150, 850), (28, 64), (26, 50),
+                              lambda r: (r.uniform(-30, 30), r.uniform(-30, 30)), (0.12, 0.26)))
 
-    # Glowing tendrils on the floor: thin neon strokes with glowing tips.
-    tend = []
     neon = [("#3df5e0", "#7dfff0"), ("#b57cff", "#cfa8ff"), ("#5ce8ff", "#9ef2ff"), ("#ff5fd2", "#ff9be4")]
-    for layer, (y, scale, op, thin) in enumerate([(880, (0.7, 0.9), 0.4, 0.22), (930, (0.85, 1.05), 0.8, 0.18)]):
-        xs = [90, 400, 720, 1040, 1350, 1570] if layer == 0 else [210, 560, 880, 1210, 1500]
-        rnd_l = random.Random(1000 + layer)
-        lines = reef_layer(rnd_l, xs, y, BIG, neon[layer:] + neon[:layer], scale, (3.5, 7), thin=thin)
-        tend.append(f'<g fill="none" stroke-linecap="round" opacity="{op:g}">{lines}'
-                    f'<animate attributeName="opacity" values="{op:g};{op * 0.45:.3f};{op:g}" dur="{5 + layer * 2.5}s" repeatCount="indefinite"/></g>')
-    body.append("".join(tend))
-    body.append(bubbles_block(rnd, 20, "#7dfff0", 0.35, [210, 560, 880, 1210, 1500], 920, (300, 800), (1.5, 5), (7, 15)))
+    # Back flora, dim.
+    back = "".join([
+        reef_layer(rnd, [100, 480, 860, 1240, 1560], 998, BIG, neon, (0.6, 0.75), (3.5, 7), thin=0.22),
+        art.branching(rnd, 300, 998, 32, 1, 5, (12, 26), 0.84, "#5ccbff", "#9ef2ff", (2, 7), 1.2),
+        art.branching(rnd, 1050, 998, 30, 1, 5, (12, 26), 0.84, "#b57cff", "#e0c8ff", (2, 7), 1.2),
+    ])
+    body.append(f'<g fill="none" stroke-linecap="round" opacity=".3">{back}</g>')
+
+    # A manta gliding through, jellyfish drifting in every direction.
+    body.append(art.swim("ry", art.wander(rnd, (-320, 300), (1920, 170), 4, 130), 85, 20, 0.85, 0.9))
+    body.append(art.swim("ja", art.wander(rnd, (200, 1200), (760, -320), 4, 170), 100, 30, 0.62))
+    body.append(art.swim("jb", art.wander(rnd, (-260, 640), (1860, 220), 5, 150), 115, 70, 0.48, 0.9))
+    body.append(art.swim("ja", art.wander(rnd, (1760, 1150), (380, -300), 4, 160), 130, 95, 0.4, 0.85))
+
+    # Middle flora.
+    mid = "".join([
+        reef_layer(rnd, [220, 600, 980, 1340], 1005, BIG, neon[1:] + neon[:1], (0.75, 0.9), (3.5, 7), thin=0.2),
+        art.sea_pen(rnd, 420, 1005, 150, "#5ccbff", "#c2f6ff"),
+        art.tube_worms(rnd, 800, 1005, "#16283a", "#ff6b9e", 4),
+        art.branching(rnd, 1180, 1005, 40, 1.2, 6, (12, 26), 0.83, "#3df5e0", "#c2fff8", (2, 6), 1.4),
+    ])
+    body.append(f'<g fill="none" stroke-linecap="round" opacity=".55">{mid}</g>')
+
+    body.append(art.swim("lf", art.wander(rnd, (1860, 700), (-260, 760), 5, 90), 90, 40, 0.46))
+    body.append(art.swim("sd", art.wander(rnd, (-220, 470), (1820, 380), 4, 140), 85, 15, 0.52))
+
+    # Front flora, rooted at the very bottom.
+    front = "".join([
+        reef_layer(rnd, [90, 690, 1250], 1012, BIG, neon, (0.95, 1.1), (3.5, 7), thin=0.18),
+        art.sea_pen(rnd, 230, 1012, 210, "#3df5e0", "#c2fff8"),
+        art.tube_worms(rnd, 380, 1012, "#1c3446", "#ff5fd2"),
+        art.anemone(rnd, 520, 1012, "#3df5e0", "#c2fff8", "#0d3a40", 1.0, 30, 2.0),
+        art.branching(rnd, 860, 1012, 54, 1.5, 6, (12, 26), 0.84, "#b57cff", "#e0c8ff", (2, 6), 1.8),
+        art.sea_pen(rnd, 1010, 1012, 180, "#ff5fd2", "#ffd0ef"),
+        art.anemone(rnd, 1120, 1012, "#b57cff", "#ecdcff", "#2a1450", 0.9, 28, 2.0),
+        art.tube_worms(rnd, 1400, 1012, "#1c3446", "#ff8a5c"),
+        art.sea_pen(rnd, 1540, 1012, 200, "#5ccbff", "#c2f6ff"),
+    ])
+    body.append(
+        f'<g fill="none" stroke-linecap="round" opacity=".85">{front}'
+        f'<animate attributeName="opacity" values=".85;.6;.85" dur="6s" repeatCount="indefinite"/></g>'
+    )
+    body.append(art.bubbles(rnd, 22, [90, 230, 380, 520, 690, 860, 1010, 1120, 1250, 1400, 1540], 995, (300, 820), (1.5, 6), (7, 15), 0.6))
+    body.append(sand([996, 993, 995, 992, 995, 993, 996], "#06121e"))
 
     # Bioluminescent plankton: drifting upwards, pulsing.
-    parts = []
-    for i in range(84):
-        x = rnd.uniform(0, VIEW_W)
-        y = rnd.uniform(120, VIEW_H)
-        r = rnd.choice([3, 4, 5, 6, 8, 11, 15]) * rnd.uniform(0.8, 1.2)
-        g = rnd.choices(range(len(glow)), weights=[5, 3, 2, 1, 1])[0]
-        dur = rnd.uniform(12, 28)
-        rise = rnd.uniform(120, 380)
-        drift = rnd.uniform(-40, 40)
-        begin = -rnd.uniform(0, dur)
-        peak = rnd.uniform(0.45, 1.0)
-        parts.append(
-            f'<circle cx="{f(x)}" cy="{f(y)}" r="{r:.1f}" fill="url(#g{g})" opacity="0">'
-            f'<animate attributeName="opacity" values="0;{peak:.2f};{peak * 0.35:.2f};{peak:.2f};0" dur="{f(dur)}s" begin="{f(begin)}s" repeatCount="indefinite"/>'
-            f'<animateTransform attributeName="transform" type="translate" values="0 0;{f(drift)} {f(-rise)}" dur="{f(dur)}s" begin="{f(begin)}s" repeatCount="indefinite"/>'
-            f"</circle>"
-        )
-    # A few big, soft glows far away (bokeh) for depth.
-    for i in range(9):
-        x, y = rnd.uniform(0, VIEW_W), rnd.uniform(150, VIEW_H * 0.85)
-        r = rnd.uniform(28, 64)
-        g = rnd.choice([0, 1, 2, 2, 3])
-        dur = rnd.uniform(26, 50)
-        peak = rnd.uniform(0.12, 0.26)
-        parts.append(
-            f'<circle cx="{f(x)}" cy="{f(y)}" r="{f(r)}" fill="url(#g{g})" opacity="0">'
-            f'<animate attributeName="opacity" values="0;{peak:.2f};0" dur="{f(dur)}s" begin="{f(-rnd.uniform(0, dur))}s" repeatCount="indefinite"/></circle>'
-        )
-    body.append("<g>" + "".join(parts) + "</g>")
+    weights = [5, 3, 2, 1, 1]
+    body.append(drifting_dots(rnd, 64, lambda r: f"url(#g{r.choices(range(5), weights=weights)[0]})", (120, 1000),
+                              (2.5, 15), (12, 28), lambda r: (r.uniform(-40, 40), -r.uniform(120, 380)), (0.45, 1.0)))
     return svg_wrap(
         "".join(body),
         stops((0, "#06243a"), (0.3, "#041729"), (0.65, "#020c19"), (1, "#01060e")),
+        "".join(defs),
     )
 
 

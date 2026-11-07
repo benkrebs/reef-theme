@@ -2,8 +2,11 @@
 
 A water theme for Home Assistant: frosted-glass cards, hairlines in the colours of the reef, and a background that shimmers like light under water.
 
+I love the sea and the underwater world, hence the theme. 🙂
+
 | Reef Coral (light) | Reef Abyss (dark) |
 | --- | --- |
+| ![Reef Coral: the underwater scene with lionfish, eagle ray, moon jellyfish and a Spanish dancer above the reef](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/coral-scene.webp) | ![Reef Abyss: glowing jellyfish, manta, lionfish and Spanish dancer in the deep sea](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/abyss-scene.webp) |
 | ![Reef Coral: the background shimmers like sunlight in a lagoon](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/coral-animated.webp) | ![Reef Abyss: bioluminescent plankton drifting in the deep sea](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/abyss-animated.webp) |
 | ![Reef Coral dashboard](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/coral-dashboard.webp) | ![Reef Abyss dashboard](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/abyss-dashboard.webp) |
 | ![Reef Coral more-info dialog](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/coral-dialog.webp) | ![Reef Abyss more-info dialog](https://raw.githubusercontent.com/benkrebs/reef-theme/main/images/abyss-dialog.webp) |
@@ -29,7 +32,9 @@ The file has three themes:
 - **Works with the built-in cards and pages.** The theme sets the classic variables and the newer `ha-color-*` design tokens, with a full primary palette. Tiles, badges, buttons, sliders, switches, dialogs, inputs, the sidebar, the header, and the settings pages all take on the theme.
 - **Gradient hairlines.** Every card and badge gets a 0.5 px line with a colour gradient (cyan, blue, violet, coral) that slowly turns and shifts its colours. The header, dialogs, and buttons get a hairline in the colour of the theme.
 - **Glass everywhere.** Cards, badges, the sidebar, the header, the toolbars of the settings pages, and dialogs are translucent, with a backdrop blur. The underwater scene sits behind every panel, so the glass works on dashboards, in the settings, and behind the sidebar.
-- **A living background.** Shimmering caustics in three layers, flickering light shafts, swaying corals, rising air bubbles and sunlit specks (Reef Coral), bioluminescent plankton, glowing tendrils and drifting jellyfish (Reef Abyss). It is one self-contained SVG, built into the theme file: nothing to copy to `www/`, no external requests, no custom cards, no card-mod.
+- **A living background.** Shimmering caustics in three layers, flickering light shafts and glowing air bubbles. It is one self-contained SVG, built into the theme file: nothing to copy to `www/`, no external requests, no custom cards, no card-mod.
+- **Animals.** Jellyfish with a pulsing bell, frilly oral arms and long trailing tentacles, a lionfish fanning its striped fins, an eagle ray (a manta in the deep) beating its wings, and a Spanish dancer rolling its red mantle. They swim along random paths in every direction, and their glow pulses with their movement.
+- **A reef from the very bottom.** Sea fans, staghorn and brain corals, tube sponges, anemones with waving tentacles and sea grass in Reef Coral; glowing sea pens, tube worms that pull in their crowns, neon anemones and sea fans in Reef Abyss.
 - **Fine and modern.** Light font weights (Avenir Light on Apple devices, Segoe UI Variable on Windows, Roboto as fallback), corners with a 13 px radius, quiet shadows.
 
 <!-- ha-marketplace:exclude-start -->
@@ -65,7 +70,7 @@ You can also set the theme on one dashboard view only, with `theme: Reef Abyss` 
 
 The background and the hairlines animate with SVG (SMIL), drawn by the browser. Phones, tablets, and computers from the last years handle it without trouble. Very weak wall tablets may stutter: the animation is part of the theme and can not be turned off per device.
 
-The theme file is about 400 KB, because the backgrounds are built into it. Home Assistant sends it once per connection.
+The theme file is about 800 KB, because the backgrounds are built into it (once per theme). Home Assistant sends it compressed, about 200 KB, once per connection.
 
 ## Customize
 
