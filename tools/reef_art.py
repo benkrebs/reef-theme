@@ -107,16 +107,43 @@ def wander(rnd: random.Random, start, end, steps: int, amp: float):
     return pts
 
 
-def swim(ref: str, path_pts, dur: float, begin: float, scale: float, opacity: float = 1.0, auto: bool = True) -> str:
+def swim(ref: str, path_pts, dur: float, begin: float, scale: float, opacity: float = 1.0, auto: bool = True, blur: str = "") -> str:
     """An instance of an animal swimming along a path."""
     flip = path_pts[-1][0] < path_pts[0][0] and auto
     tf = f"scale({scale:g}{' ' + format(-scale, 'g') if flip else ''})"
-    op = f' opacity="{opacity:g}"' if opacity < 1 else ""
+    op = f' opacity="{opacity:.2f}"' if opacity < 1 else ""
+    fl = f' filter="url(#{blur})"' if blur else ""
     rot = ' rotate="auto"' if auto else ""
     return (
-        f'<g{op}><animateMotion path="{smooth(path_pts)}" dur="{n(dur)}s" begin="{n(-begin)}s" repeatCount="indefinite"{rot}/>'
+        f'<g{op}{fl}><animateMotion path="{smooth(path_pts)}" dur="{n(dur)}s" begin="{n(-begin)}s" repeatCount="indefinite"{rot}/>'
         f'<use href="#{ref}" transform="{tf}"/></g>'
     )
+
+
+SPECIES = {  # speed in units/s at scale 1, scale range from far (z=0) to near (z=1)
+    "jelly": (26, 0.22, 0.75),
+    "lion": (34, 0.24, 0.95),
+    "ray": (26, 0.35, 1.1),
+    "dancer": (24, 0.25, 0.85),
+}
+
+DEPTH_FILTERS = (
+    '<filter id="fz1" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="1.8"/></filter>'
+    '<filter id="fz2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation=".9"/></filter>'
+)
+
+
+def creature(ref: str, species: str, z: float, rnd: random.Random, start, end, steps: int = 4, amp: float = 120) -> str:
+    """Place an animal at depth z (0 = far, 1 = near): far ones are smaller, slower,
+    fainter and blurred; near ones big, fast and sharp."""
+    speed, smin, smax = SPECIES[species]
+    scale = smin + (smax - smin) * z
+    pts = wander(rnd, start, end, steps, amp)
+    length = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+    dur = length / (speed * scale)
+    opacity = 0.38 + 0.62 * z
+    blur = "fz1" if z < 0.3 else ""
+    return swim(ref, pts, dur, rnd.uniform(0, dur), scale, opacity, blur=blur)
 
 
 def glow_gradients(colors: dict[str, str]) -> str:
@@ -226,132 +253,215 @@ def jellyfish_def(uid: str, rnd: random.Random, s: dict, period: float) -> str:
 
 
 # --------------------------------------------------------------------------
-# Lionfish (Pterois): striped body, fanning pectorals, venomous dorsal spines
+# Lionfish (Pterois volitans): banded body, huge feathery pectoral fins with
+# broad membranes, long dorsal spines with flags. Fins move slowly, in waves.
 # --------------------------------------------------------------------------
 
 
-def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 2.2) -> str:
+def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 5.6) -> str:
     B = beat
+    F = 6
+    ts = [i / F for i in range(F)]
 
-    def top(x):  # back contour
-        return -28 * math.sqrt(max(0.0, 1 - ((x - 10) / 98) ** 2)) - 2
+    body = ("M100 6C98-4 92-14 80-22C64-32 40-36 14-34C-20-32-50-20-74-9L-86-7L-86 7"
+            "C-60 18-30 26 0 28C40 30 76 24 92 16C97 13 100 10 100 6Z")
 
-    body = "M96 4C93-10 72-26 42-28C10-30-40-22-70-10L-88-6L-88 6L-70 10C-40 22 10 26 42 24C72 22 93 14 96 4Z"
-    stripes = "".join(f"M{x}-40Q{x + 7} 0 {x} 40" for x in range(-82, 92, 11))
+    def top(x):  # approximate back contour, for the spine bases
+        return -34 * math.sqrt(max(0.0, 1 - ((x - 14) / 102) ** 2))
 
-    # Dorsal spines with flags.
-    sp, flags = [], []
-    for i in range(11):
-        bx = 46 - i * 9.5
-        by = top(bx) + 2
-        L = (78 - i * 3.6) * rnd.uniform(0.9, 1.08)
-        a = math.radians(-98 - i * 4.5)
-        tx, ty = bx + L * math.cos(a), by + L * math.sin(a)
-        sp.append(f"M{n(bx)} {n(by)}L{n(tx)} {n(ty)}")
-        fx, fy = bx + 0.45 * L * math.cos(a), by + 0.45 * L * math.sin(a)
-        flags.append(f"M{n(bx)} {n(by)}L{n(fx)} {n(fy)}Q{n(fx - 6)} {n(fy + 10)} {n(bx - 8)} {n(by + 1)}Z")
-    dorsal = (
-        f"<g>{anim_rot([-4, 3, -4], 0, -26, B * 1.6, extra=' ' + EASE)}"
-        f'<path d="{"".join(flags)}" fill="{s["membrane"]}" fill-opacity="{s["membrane_op"]:g}"/>'
-        f'<path d="{"".join(sp)}" stroke="{s["spine"]}" stroke-width="2.2" stroke-linecap="round"/>'
-        f'<path d="{"".join(sp)}" stroke="{s["stripe"]}" stroke-width="2.3" stroke-dasharray="5 5"/></g>'
-    )
+    defs = [f'<clipPath id="{uid}c"><path d="{body}"/></clipPath>',
+            f'<linearGradient id="{uid}s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{s["shade"]}" stop-opacity=".45"/>'
+            f'<stop offset=".5" stop-color="{s["shade"]}" stop-opacity="0"/><stop offset="1" stop-color="#ffffff" stop-opacity=".12"/></linearGradient>']
 
-    def fan(cx, cy, a0, a1, rays, l0, l1, colour_op, phase):
-        lines, webs = [], []
-        tips = []
-        for i in range(rays):
-            a = math.radians(a0 + (a1 - a0) * i / (rays - 1))
-            L = l0 + (l1 - l0) * math.sin(math.pi * i / (rays - 1)) * rnd.uniform(0.9, 1.1)
-            tips.append((cx + L * math.cos(a), cy + L * math.sin(a), a, L))
-            lines.append(f"M{n(cx)} {n(cy)}L{n(cx + L * math.cos(a))} {n(cy + L * math.sin(a))}")
-        for (x1, y1, a1_, L1), (x2, y2, a2_, L2) in zip(tips, tips[1:]):
-            webs.append(
-                f"M{n(cx)} {n(cy)}L{n(cx + 0.82 * L1 * math.cos(a1_))} {n(cy + 0.82 * L1 * math.sin(a1_))}"
-                f"Q{n(cx + 0.75 * (L1 + L2) / 2 * math.cos((a1_ + a2_) / 2))} {n(cy + 0.75 * (L1 + L2) / 2 * math.sin((a1_ + a2_) / 2))}"
-                f" {n(cx + 0.82 * L2 * math.cos(a2_))} {n(cy + 0.82 * L2 * math.sin(a2_))}Z"
-            )
+    def membrane_grad(gid, cx, cy, r):
+        defs.append(
+            f'<radialGradient id="{gid}" gradientUnits="userSpaceOnUse" cx="{n(cx)}" cy="{n(cy)}" r="{n(r)}">'
+            f'<stop offset="0" stop-color="{s["mem_in"]}" stop-opacity="{s["mem_op"] * 0.6:.2f}"/>'
+            f'<stop offset=".65" stop-color="{s["mem_out"]}" stop-opacity="{s["mem_op"]:.2f}"/>'
+            f'<stop offset="1" stop-color="{s["mem_out"]}" stop-opacity="{s["mem_op"] * 0.5:.2f}"/></radialGradient>'
+        )
+
+    def rays_use(rid, frames, width=1.5):
+        defs.append(f'<path id="{rid}" d="{frames[0]}">{anim_d(frames, B)}</path>')
+        return (f'<use href="#{rid}" stroke="{s["spine"]}" stroke-width="{width:g}" stroke-linecap="round"/>'
+                f'<use href="#{rid}" stroke="{s["stripe"]}" stroke-width="{width + 0.1:g}" stroke-dasharray="5 6"/>')
+
+    def pectoral(key, cx, cy, a0, a1, rays, lmax, lmin, phase, op):
+        base = [a0 + (a1 - a0) * i / (rays - 1) for i in range(rays)]
+        lens = [(lmin + (lmax - lmin) * math.sin(math.pi * (0.12 + 0.82 * i / (rays - 1)))) * rnd.uniform(0.95, 1.05) for i in range(rays)]
+        amid = (a0 + a1) / 2
+        fr, fm, fb = [], [], []
+        for t in ts:
+            spread = 1 + 0.16 * math.sin(TAU * (t + phase))
+            ang = [math.radians(amid + (a - amid) * spread + 8 * math.sin(TAU * (t + phase) - i * 0.3)) for i, a in enumerate(base)]
+
+            def tip(i, f):
+                return (cx + f * lens[i] * math.cos(ang[i]), cy + f * lens[i] * math.sin(ang[i]))
+
+            fr.append("".join(f"M{n(cx)} {n(cy)}L{pt(tip(i, 1.0))}" for i in range(rays)))
+            d = f"M{n(cx)} {n(cy)}L{pt(tip(0, 0.9))}"
+            for i in range(rays - 1):
+                am = (ang[i] + ang[i + 1]) / 2
+                lm = 0.8 * (lens[i] + lens[i + 1]) / 2
+                d += f"Q{n(cx + lm * math.cos(am))} {n(cy + lm * math.sin(am))} {pt(tip(i + 1, 0.9))}"
+            fm.append(d + "Z")
+            fb.append("".join(smooth([tip(i, f) for i in range(rays)]) for f in (0.32, 0.5, 0.67, 0.82)))
+        gid = f"{uid}m{key}"
+        membrane_grad(gid, cx, cy, lmax)
         return (
-            f'<g opacity="{colour_op:g}">{anim_rot([-14, 8, -14], cx, cy, B, begin=-phase, extra=" " + EASE)}'
-            f'<path d="{"".join(webs)}" fill="{s["membrane"]}" fill-opacity="{s["membrane_op"]:g}"/>'
-            f'<path d="{"".join(lines)}" stroke="{s["spine"]}" stroke-width="1.8" stroke-linecap="round"/>'
-            f'<path d="{"".join(lines)}" stroke="{s["stripe"]}" stroke-width="1.9" stroke-dasharray="6 6"/></g>'
+            f'<g opacity="{op:g}">'
+            f'<path d="{fm[0]}" fill="url(#{gid})">{anim_d(fm, B)}</path>'
+            f'<path d="{fb[0]}" fill="none" stroke="{s["band"]}" stroke-width="3" stroke-dasharray="2.5 5" stroke-linecap="round" stroke-opacity=".75">{anim_d(fb, B)}</path>'
+            + rays_use(f"{uid}r{key}", fr)
+            + "</g>"
         )
 
-    tail_rays = []
-    for i in range(9):
-        a = math.radians(180 - 38 + 76 * i / 8)
-        tail_rays.append((-86 + 46 * math.cos(a), 46 * math.sin(a)))
-    tail_d = "M-86 0" + "".join(f"L{n(x)} {n(y)}" for x, y in tail_rays) + "Z"
-    tail_spots = "".join(f'<circle cx="{n(-100 - rnd.uniform(0, 26))}" cy="{n(rnd.uniform(-22, 22))}" r="{n(rnd.uniform(1.5, 3))}"/>' for _ in range(12))
-    tail = (
-        f"<g>{anim_rot([-12, 12, -12], -86, 0, B * 0.7, extra=' ' + EASE)}"
-        f'<path d="{tail_d}" fill="{s["membrane"]}" fill-opacity="{s["membrane_op"] * 1.2:.2f}" stroke="{s["spine"]}" stroke-width="1" stroke-opacity=".6"/>'
-        f'<g fill="{s["stripe"]}" opacity=".8">{tail_spots}</g></g>'
+    def dorsal():
+        k = 12
+        bases = [(62 - i * 10, top(62 - i * 10) + 4) for i in range(k)]
+        base_ang = [-96 - i * 4.4 for i in range(k)]
+        lens = [(98 - i * 4.6) * rnd.uniform(0.93, 1.06) for i in range(k)]
+        fs, fw, ff = [], [], []
+        for t in ts:
+            ang = [math.radians(a + 6 * math.sin(TAU * t - i * 0.45)) for i, a in enumerate(base_ang)]
+
+            def P(i, f):
+                return (bases[i][0] + f * lens[i] * math.cos(ang[i]), bases[i][1] + f * lens[i] * math.sin(ang[i]))
+
+            fs.append("".join(f"M{pt(bases[i])}L{pt(P(i, 1))}" for i in range(k)))
+            w = ""
+            for i in range(k - 1):
+                a, b = P(i, 0.55), P(i + 1, 0.5)
+                m = mid(a, b)
+                w += f"M{pt(bases[i])}L{pt(a)}Q{n(m[0])} {n(m[1] + 7)} {pt(b)}L{pt(bases[i + 1])}Z"
+            fw.append(w)
+            fl = ""
+            for i in range(k):
+                px, py = math.sin(ang[i]), -math.cos(ang[i])  # trailing side
+                a1, a2, a3 = P(i, 0.28), P(i, 0.6), P(i, 0.93)
+                wd = 11 - i * 0.4
+                fl += f"M{pt(a1)}Q{n(a2[0] + px * wd)} {n(a2[1] + py * wd)} {pt(a3)}Z"
+            ff.append(fl)
+        membrane_grad(f"{uid}md", 10, -30, 100)
+        return (
+            f'<path d="{fw[0]}" fill="url(#{uid}md)">{anim_d(fw, B)}</path>'
+            f'<path d="{ff[0]}" fill="url(#{uid}md)">{anim_d(ff, B)}</path>'
+            + rays_use(f"{uid}rd", fs, 1.7)
+        )
+
+    # Caudal fin: rounded fan with rows of spots.
+    tail_tips = [(-84 + 50 * math.cos(math.radians(180 + a)), 50 * math.sin(math.radians(180 + a))) for a in range(-42, 43, 10)]
+    tail = smooth([(-84, -6)] + tail_tips + [(-84, 6)], closed=True)
+    tail_rays = "".join(f"M-84 0L{pt(p)}" for p in tail_tips)
+    tail_dots = "".join(f'<circle cx="{n(-84 + (p[0] + 84) * f)}" cy="{n(p[1] * f)}" r="{n(2.2 - f)}"/>' for p in tail_tips for f in (0.45, 0.68, 0.88))
+    caudal = (
+        f"<g>{anim_rot([-7, 7, -7], -84, 0, B * 0.75, extra=' ' + EASE)}"
+        f'<path d="{tail}" fill="url(#{uid}md)" stroke="{s["spine"]}" stroke-width=".8" stroke-opacity=".5"/>'
+        f'<path d="{tail_rays}" stroke="{s["spine"]}" stroke-width="1" stroke-opacity=".7"/>'
+        f'<g fill="{s["band"]}" opacity=".8">{tail_dots}</g></g>'
     )
 
+    def soft_fin(d, cx, cy, amp):
+        dots = "".join(f'<circle cx="{n(cx - rnd.uniform(4, 30))}" cy="{n(cy + rnd.uniform(-12, 12))}" r="{n(rnd.uniform(1, 1.8))}"/>' for _ in range(8))
+        return (f"<g>{anim_rot([-amp, amp, -amp], cx, cy, B * 1.2, extra=' ' + EASE)}"
+                f'<path d="{d}" fill="url(#{uid}md)" stroke="{s["spine"]}" stroke-width=".8" stroke-opacity=".5"/>'
+                f'<g fill="{s["band"]}" opacity=".7">{dots}</g></g>')
+
+    soft_dorsal = soft_fin("M-36-30Q-56-52-80-12L-74-8Q-54-20-36-24Z", -40, -28, 3)
+    anal = soft_fin("M-28 22Q-50 46-78 12L-72 8Q-52 18-30 18Z", -32, 20, 3)
+
+    pelvic_r = []
+    for i in range(4):
+        a = math.radians(100 + i * 8)
+        L = 58 - i * 6
+        pelvic_r.append(f"M36 24L{n(36 + L * math.cos(a))} {n(24 + L * math.sin(a))}")
+    pelvic = (
+        f"<g>{anim_rot([-6, 6, -6], 36, 24, B, extra=' ' + EASE)}"
+        f'<path d="M36 24L{n(36 + 52 * math.cos(math.radians(100)))} {n(24 + 52 * math.sin(math.radians(100)))}'
+        f'Q24 70 {n(36 + 40 * math.cos(math.radians(124)))} {n(24 + 40 * math.sin(math.radians(124)))}Z" fill="url(#{uid}md)"/>'
+        f'<path d="{"".join(pelvic_r)}" stroke="{s["spine"]}" stroke-width="1.4" stroke-linecap="round"/>'
+        f'<path d="{"".join(pelvic_r)}" stroke="{s["stripe"]}" stroke-width="1.5" stroke-dasharray="4 5"/></g>'
+    )
+
+    wide, thin = [], []
+    x = -80.0
+    i = 0
+    while x < 99:
+        slant = max(0.0, x - 50) * 0.45
+        d = f"M{n(x - slant)}-40Q{n(x + 9)} 0 {n(x + slant * 0.4)} 40"
+        (wide if i % 2 == 0 else thin).append(d)
+        x += 8.5 if i % 2 == 0 else 5.5
+        i += 1
     eye = (
-        f'<circle cx="64" cy="-8" r="6.5" fill="{s["eye_ring"]}"/><circle cx="64" cy="-8" r="4" fill="{s["eye"]}"/>'
-        f'<circle cx="62.5" cy="-9.5" r="1.4" fill="#fff" opacity=".9"/>'
-        f'<path d="M60-15Q62-26 58-32M66-14Q70-24 70-30" stroke="{s["spine"]}" stroke-width="1.3" fill="none" stroke-linecap="round"/>'
+        f'<path d="M73-26L86 6" stroke="{s["stripe"]}" stroke-width="4" stroke-opacity=".8" clip-path="url(#{uid}c)"/>'
+        f'<circle cx="80" cy="-12" r="6.2" fill="{s["eye_ring"]}"/><circle cx="80" cy="-12" r="3.8" fill="{s["eye"]}"/>'
+        f'<circle cx="78.6" cy="-13.4" r="1.3" fill="#fff" opacity=".9"/>'
+        f'<path d="M77-18Q72-30 77-40M77-30L72-34M76-25L71-27M84-17Q86-27 84-34" stroke="{s["spine"]}" stroke-width="1.2" fill="none" stroke-linecap="round"/>'
+        f'<path d="M100 6L91 9M62-22Q52 2 60 24" stroke="{s["outline"]}" stroke-width="1" fill="none" stroke-opacity=".55"/>'
     )
 
-    return (
-        f'<g id="{uid}"><g>'
-        f"{anim_tr([(0, 0), (4, -3), (0, 0)], B, ' ' + EASE)}"
-        f"{anim_rot([-2, 2, -2], 0, 0, B * 2.1, extra=' ' + EASE)}"
-        + glow(s["glow"], 10, 10, (90, 120), s["glow_op"], B, EASE, rx_scale=1.4)
-        + fan(30, 6, 105, 205, 10, 60, 95, 0.55, B / 2)  # far pectoral
-        + tail
-        + dorsal
-        + f'<defs><clipPath id="{uid}c"><path d="{body}"/></clipPath></defs>'
+    body_g = (
         f'<path d="{body}" fill="{s["body"]}" fill-opacity="{s["body_op"]:g}"/>'
-        f'<path d="{stripes}" clip-path="url(#{uid}c)" stroke="{s["stripe"]}" stroke-width="5.5" fill="none" stroke-opacity="{s["stripe_op"]:g}"/>'
-        f'<path d="{body}" fill="none" stroke="{s["outline"]}" stroke-width="1.1" stroke-opacity=".7"/>'
-        + eye
-        + fan(34, 10, 100, 190, 9, 70, 112, 0.95, 0)  # near pectoral
-        + f'<path d="M40 22L30 58M44 22L40 62M48 22L50 56" stroke="{s["spine"]}" stroke-width="1.6" stroke-linecap="round"/>'
-        "</g></g>"
+        f'<g clip-path="url(#{uid}c)" fill="none">'
+        f'<path d="{"".join(wide)}" stroke="{s["stripe"]}" stroke-width="6.4" stroke-opacity=".92"/>'
+        f'<path d="{"".join(thin)}" stroke="{s["thin"]}" stroke-width="1.3" stroke-opacity=".6"/>'
+        f'<rect x="-90" y="-40" width="200" height="80" fill="url(#{uid}s)"/></g>'
+        f'<path d="{body}" fill="none" stroke="{s["outline"]}" stroke-width=".9" stroke-opacity=".6"/>'
+    )
+
+    far_pec = pectoral("f", 34, 8, 110, 205, 12, 104, 56, 0.12, 0.5)
+    near_pec = pectoral("n", 40, 12, 98, 196, 13, 122, 62, 0.0, 0.95)
+    dors = dorsal()
+    return (
+        f'<g id="{uid}"><defs>{"".join(defs)}</defs><g>'
+        f"{anim_tr([(0, 0), (3, -5), (0, 0)], B * 1.1, ' ' + EASE)}"
+        f"{anim_rot([-1.5, 1.5, -1.5], 0, 0, B * 1.7, extra=' ' + EASE)}"
+        + glow(s["glow"], 10, 10, (100, 130), s["glow_op"], B, EASE, rx_scale=1.4)
+        + far_pec + caudal + soft_dorsal + anal + dors + body_g + eye + pelvic + near_pec
+        + f'<ellipse cx="41" cy="12" rx="8" ry="5.5" fill="{s["stripe"]}" opacity=".9"/>'
+        + f'<ellipse cx="40" cy="10.5" rx="5" ry="2.5" fill="{s["body"]}" opacity=".5"/>'
+        + "</g></g>"
     )
 
 
 # --------------------------------------------------------------------------
-# Manta ray (top view): flapping wings, whip tail, glowing spots
+# Eagle ray / manta (top view): slow, deep wing beats with a wave running
+# out to the wing tips, a whip tail and glowing spots.
 # --------------------------------------------------------------------------
 
 
-def ray_def(uid: str, rnd: random.Random, s: dict, flap: float = 3.6) -> str:
+def ray_def(uid: str, rnd: random.Random, s: dict, flap: float = 6.5) -> str:
     R = flap
+    F = 10
     frames, tails = [], []
-    F = 8
+    lead = [(0.33, 40, -42), (0.66, 12, -86), (1.0, -18, -128), (1.0, -18, -128)]
+    trail = [(0.66, -30, -72), (0.33, -46, -38)]
     for fi in range(F):
-        p = fi / F
-        fl = math.sin(TAU * p)
-        tx, ty = -14 - 18 * fl, 120 - 24 * fl * fl
-        lead = 0.62 + 0.08 * fl
-        frames.append(
-            f"M68-8Q74-18 60-22C42-32 12-{n(ty * lead)} {n(tx)}-{n(ty)}"
-            f"C{n(tx - 12)}-{n(ty - 12)}-30-42-52-14L-62 0L-52 14"
-            f"C-30 42 {n(tx - 12)} {n(ty - 12)} {n(tx)} {n(ty)}C12 {n(ty * lead)} 42 32 60 22Q74 18 68 8Z"
-        )
-        pts = [(-60 - 30 * j, 6 * math.sin(TAU * (0.6 * j / 5 - p))) for j in range(6)]
+        t = fi / F
+
+        def shift(sv, x, y):
+            fv = math.sin(TAU * (t - 0.16 * sv))
+            return (x - 30 * sv * fv, y * (1 - 0.22 * sv * fv * fv) - 6 * sv * fv)
+
+        topp = [(72, -5), (62, -20)] + [shift(*p) for p in lead] + [shift(*p) for p in trail] + [(-54, -14), (-63, -4)]
+        bottom = [(x, -y) for x, y in reversed(topp)]
+        frames.append(smooth(topp + bottom, closed=True))
+        pts = [(-62 - 34 * j, 8 * math.sin(TAU * (0.45 * j / 6 - t))) for j in range(7)]
         tails.append(smooth(pts))
     spots = "".join(f'<circle cx="{n(rnd.uniform(-40, 30))}" cy="{n(sg * rnd.uniform(14, 60))}" r="{n(rnd.uniform(1.6, 3.4))}"/>' for sg in (-1, 1) for _ in range(7))
-    spots_op = ""
-    if s.get("neon"):
-        spots_op = f'<animate attributeName="opacity" values=".35;1;.35" dur="{n(R)}s" repeatCount="indefinite"/>'
+    spots_op = f'<animate attributeName="opacity" values=".35;1;.35" dur="{n(R)}s" repeatCount="indefinite"/>' if s.get("neon") else ""
     return (
         f'<g id="{uid}"><g>'
-        f"{anim_sc([(1, 1), (1.02, 0.97), (1, 1)], R / 2, ' ' + EASE)}"
-        + glow(s["glow"], 0, 0, (90, 125), s["glow_op"], R / 2, EASE, rx_scale=0.7)
+        f"{anim_sc([(1, 1), (1.03, 0.9), (1, 1)], R / 2, ' ' + EASE)}"
+        + glow(s["glow"], 0, 0, (95, 130), s["glow_op"], R / 2, EASE, rx_scale=0.7)
         + f'<path d="{tails[0]}" fill="none" stroke="{s["edge"]}" stroke-width="2.4" stroke-opacity=".75" stroke-linecap="round">{anim_d(tails, R)}</path>'
         f'<defs><path id="{uid}b" d="{frames[0]}">{anim_d(frames, R)}</path>'
         f'<linearGradient id="{uid}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{s["wing"]}"/><stop offset=".5" stop-color="{s["back"]}"/><stop offset="1" stop-color="{s["wing"]}"/></linearGradient></defs>'
         f'<use href="#{uid}b" fill="url(#{uid}g)" fill-opacity="{s["body_op"]:g}"/>'
         + (f'<use href="#{uid}b" fill="none" stroke="{s["edge"]}" stroke-width="7" stroke-opacity=".12"/>' if s.get("neon") else "")
         + f'<use href="#{uid}b" fill="none" stroke="{s["edge"]}" stroke-width="1.2" stroke-opacity=".85"/>'
-        f'<path d="M58 0L-50 0" stroke="{s["edge"]}" stroke-width=".8" stroke-opacity=".35"/>'
-        f'<ellipse cx="34" cy="-16" rx="12" ry="6" fill="{s["patch"]}" opacity=".55"/><ellipse cx="34" cy="16" rx="12" ry="6" fill="{s["patch"]}" opacity=".55"/>'
+        f'<path d="M62 0L-50 0" stroke="{s["edge"]}" stroke-width=".8" stroke-opacity=".35"/>'
+        f'<ellipse cx="36" cy="-15" rx="12" ry="6" fill="{s["patch"]}" opacity=".55"/><ellipse cx="36" cy="15" rx="12" ry="6" fill="{s["patch"]}" opacity=".55"/>'
         f'<g fill="{s["spot"]}">{spots_op}{spots}</g>'
         "</g></g>"
     )

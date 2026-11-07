@@ -317,10 +317,12 @@ def background_coral(png_b64: str) -> str:
     defs = [
         art.glow_gradients({"gw": "#ffffff", "gp": "#ffd3e2", "gc": "#d9fbff"}),
         art.bubble_defs("#e6ffff"),
+        art.DEPTH_FILTERS,
         art.jellyfish_def("jm", rnd, dict(glow="gw", glow_op=(0.18, 0.42), bell="#ffffff", bell_op=0.32, rim="#ffffff", gonad="#f49ac1",
                                           arm="#ffe4ef", arm_op=0.45, arm_edge="#ffffff", tent="#ffffff", tent_op=0.6), 3.0),
-        art.lionfish_def("lf", rnd, dict(glow="gw", glow_op=(0.06, 0.16), body="#f6e7d7", body_op=0.97, stripe="#b8362f", stripe_op=0.9,
-                                         spine="#fff6ee", membrane="#f0bfa8", membrane_op=0.5, outline="#8a2a24", eye="#1d1d1d", eye_ring="#d9a441")),
+        art.lionfish_def("lf", rnd, dict(glow="gw", glow_op=(0.05, 0.14), body="#f7ece0", body_op=0.97, stripe="#a3332b", thin="#6e2a24",
+                                         shade="#3a1410", spine="#fff7ef", band="#a3332b", mem_in="#fff3ea", mem_out="#e8a08b", mem_op=0.55,
+                                         outline="#6e2a24", eye="#141414", eye_ring="#c9952f")),
         art.ray_def("ry", rnd, dict(glow="gc", glow_op=(0.06, 0.16), wing="#6a92b0", back="#2f4a63", body_op=0.92, edge="#21384c",
                                     patch="#eef8fb", spot="#eef8fb")),
         art.dancer_def("sd", rnd, dict(glow="gp", glow_op=(0.12, 0.3), mantle="#e0283f", core="#ff6b6b", body_op=0.96, frill="#fff3f0", gill="#ffffff")),
@@ -330,8 +332,11 @@ def background_coral(png_b64: str) -> str:
     body.append(drifting_dots(rnd, 28, lambda r: "#ffffff", (60, 900), (1.2, 3.2), (9, 20),
                               lambda r: (r.uniform(-90, 90), r.uniform(-60, 60)), (0.5, 0.9)))
 
-    # Far away: a manta gliding high above the reef, a pale back reef.
-    body.append(art.swim("ry", art.wander(rnd, (-320, 230), (1920, 330), 4, 120), 70, 25, 0.62, 0.7))
+    # Far away (small, slow, faint, blurred), behind the back reef.
+    body.append(art.creature("ry", "ray", 0.12, rnd, (-320, 260), (1920, 340), 3, 160))
+    body.append(art.creature("lf", "lion", 0.16, rnd, (1860, 600), (-260, 520), 4, 90))
+    body.append(art.creature("jm", "jelly", 0.14, rnd, (1300, 1100), (500, -250), 4, 150))
+    body.append(art.creature("sd", "dancer", 0.2, rnd, (-220, 700), (1820, 620), 4, 110))
     back = "".join([
         reef_layer(rnd, [60, 420, 760, 1120, 1480], 996, BIG, [("#8fd3dc", "#a6dde4")], (0.55, 0.7), (2.6, 8)),
         art.branching(rnd, 250, 996, 32, 2.4, 5, (12, 26), 0.84, "#9ad8e0", "#b4e4ea", (2, 7)),
@@ -341,9 +346,10 @@ def background_coral(png_b64: str) -> str:
     body.append(f'<g fill="none" stroke-linecap="round" opacity=".45">{back}</g>')
     body.append(sand([990, 986, 989, 984, 988, 985, 989], "#bfe6e8", 0.7))
 
-    # Jellyfish drifting in every direction.
-    body.append(art.swim("jm", art.wander(rnd, (280, 1180), (980, -320), 4, 170), 95, 40, 0.68, 0.9))
-    body.append(art.swim("jm", art.wander(rnd, (1850, 760), (-250, 120), 5, 140), 125, 90, 0.46, 0.85))
+    # Middle distance.
+    body.append(art.creature("jm", "jelly", 0.5, rnd, (280, 1180), (980, -320), 4, 170))
+    body.append(art.creature("lf", "lion", 0.45, rnd, (-260, 640), (1860, 560), 5, 90))
+    body.append(art.creature("sd", "dancer", 0.55, rnd, (1820, 420), (-220, 540), 4, 150))
 
     # Middle reef: muted colours.
     mid = "".join([
@@ -356,10 +362,10 @@ def background_coral(png_b64: str) -> str:
     ])
     body.append(f'<g fill="none" stroke-linecap="round" opacity=".62">{mid}</g>')
 
-    # Fish and a Spanish dancer above the reef.
-    body.append(art.swim("lf", art.wander(rnd, (1860, 560), (-260, 650), 5, 90), 95, 30, 0.45, 0.85))
-    body.append(art.swim("sd", art.wander(rnd, (1820, 400), (-220, 520), 4, 150), 90, 55, 0.75))
-    body.append(art.swim("lf", art.wander(rnd, (-260, 740), (1860, 680), 5, 80), 80, 10, 0.7))
+    # Close by: big, fast and sharp.
+    body.append(art.creature("lf", "lion", 0.92, rnd, (1900, 700), (-300, 760), 5, 90))
+    body.append(art.creature("ry", "ray", 0.8, rnd, (-360, 200), (1960, 300), 3, 220))
+    body.append(art.creature("jm", "jelly", 0.85, rnd, (1850, 800), (-250, 100), 5, 140))
 
     # Front reef, rooted at the very bottom.
     front = "".join([
@@ -381,7 +387,7 @@ def background_coral(png_b64: str) -> str:
         reef_layer(rnd, [1575], 1012, BIG, [("#60a5f8", "#95c3ff")], (1.15, 1.3), (3.5, 6)),
     ])
     body.append(f'<g fill="none" stroke-linecap="round" opacity=".88">{front}</g>')
-    body.append(art.bubbles(rnd, 38, [80, 215, 330, 445, 665, 780, 965, 1070, 1175, 1280, 1480, 1575], 990, (380, 920), (2, 8), (5, 12), 0.85))
+    body.append(art.bubbles(rnd, 38, [80, 215, 330, 445, 665, 780, 965, 1070, 1175, 1280, 1480, 1575], 990, (380, 920), (2, 8), (10, 20), 0.85))
     body.append(sand([994, 989, 993, 987, 992, 988, 993, 989, 994], "#f3ead5"))
     return svg_wrap(
         "".join(body),
@@ -411,12 +417,14 @@ def background_abyss(png_b64: str) -> str:
     defs += [
         art.glow_gradients({"gc": "#3df5e0", "gv": "#b57cff", "gm": "#ff5fd2", "gb": "#5ccbff"}),
         art.bubble_defs("#7dfff0"),
+        art.DEPTH_FILTERS,
         art.jellyfish_def("ja", rnd, dict(glow="gc", glow_op=(0.25, 0.65), bell="#3df5e0", bell_op=0.13, rim="#9ffaf0", gonad="#b57cff",
                                           arm="#5ce8ff", arm_op=0.22, arm_edge="#9ffaf0", tent="#7dfff0", tent_op=0.7, neon=True), 2.6),
         art.jellyfish_def("jb", rnd, dict(glow="gv", glow_op=(0.22, 0.6), bell="#b57cff", bell_op=0.14, rim="#e0c8ff", gonad="#ff5fd2",
                                           arm="#cfa8ff", arm_op=0.22, arm_edge="#e0c8ff", tent="#cfa8ff", tent_op=0.7, neon=True), 3.4),
-        art.lionfish_def("lf", rnd, dict(glow="gm", glow_op=(0.12, 0.32), body="#1a0b26", body_op=0.78, stripe="#ff5fd2", stripe_op=0.85,
-                                         spine="#9ef2ff", membrane="#ff5fd2", membrane_op=0.18, outline="#ff9be4", eye="#020a14", eye_ring="#3df5e0")),
+        art.lionfish_def("lf", rnd, dict(glow="gm", glow_op=(0.12, 0.3), body="#160a22", body_op=0.82, stripe="#ff5fd2", thin="#9ef2ff",
+                                         shade="#000000", spine="#9ef2ff", band="#ff9be4", mem_in="#ff5fd2", mem_out="#b57cff", mem_op=0.22,
+                                         outline="#ff9be4", eye="#020a14", eye_ring="#3df5e0")),
         art.ray_def("ry", rnd, dict(glow="gb", glow_op=(0.1, 0.3), wing="#0a3a55", back="#041a2b", body_op=0.82, edge="#5ccbff",
                                     patch="#3df5e0", spot="#9ef2ff", neon=True)),
         art.dancer_def("sd", rnd, dict(glow="gm", glow_op=(0.2, 0.5), mantle="#ff2d75", core="#ff8fb1", body_op=0.78, frill="#ffd0e8",
@@ -441,11 +449,13 @@ def background_abyss(png_b64: str) -> str:
     ])
     body.append(f'<g fill="none" stroke-linecap="round" opacity=".3">{back}</g>')
 
-    # A manta gliding through, jellyfish drifting in every direction.
-    body.append(art.swim("ry", art.wander(rnd, (-320, 300), (1920, 170), 4, 130), 85, 20, 0.85, 0.9))
-    body.append(art.swim("ja", art.wander(rnd, (200, 1200), (760, -320), 4, 170), 100, 30, 0.62))
-    body.append(art.swim("jb", art.wander(rnd, (-260, 640), (1860, 220), 5, 150), 115, 70, 0.48, 0.9))
-    body.append(art.swim("ja", art.wander(rnd, (1760, 1150), (380, -300), 4, 160), 130, 95, 0.4, 0.85))
+    # Far away: faint, blurred, slow.
+    body.append(art.creature("jb", "jelly", 0.15, rnd, (-260, 640), (1860, 220), 5, 150))
+    body.append(art.creature("ry", "ray", 0.2, rnd, (1920, 300), (-320, 200), 3, 180))
+    body.append(art.creature("lf", "lion", 0.14, rnd, (-260, 560), (1860, 640), 4, 90))
+    # Middle distance.
+    body.append(art.creature("ja", "jelly", 0.5, rnd, (200, 1200), (760, -320), 4, 170))
+    body.append(art.creature("sd", "dancer", 0.5, rnd, (-220, 470), (1820, 380), 4, 140))
 
     # Middle flora.
     mid = "".join([
@@ -456,8 +466,10 @@ def background_abyss(png_b64: str) -> str:
     ])
     body.append(f'<g fill="none" stroke-linecap="round" opacity=".55">{mid}</g>')
 
-    body.append(art.swim("lf", art.wander(rnd, (1860, 700), (-260, 760), 5, 90), 90, 40, 0.46))
-    body.append(art.swim("sd", art.wander(rnd, (-220, 470), (1820, 380), 4, 140), 85, 15, 0.52))
+    # Close by.
+    body.append(art.creature("ja", "jelly", 0.88, rnd, (1760, 1150), (380, -300), 4, 160))
+    body.append(art.creature("lf", "lion", 0.9, rnd, (1900, 700), (-300, 760), 5, 90))
+    body.append(art.creature("ry", "ray", 0.78, rnd, (-360, 260), (1960, 160), 3, 220))
 
     # Front flora, rooted at the very bottom.
     front = "".join([
@@ -475,7 +487,7 @@ def background_abyss(png_b64: str) -> str:
         f'<g fill="none" stroke-linecap="round" opacity=".85">{front}'
         f'<animate attributeName="opacity" values=".85;.6;.85" dur="6s" repeatCount="indefinite"/></g>'
     )
-    body.append(art.bubbles(rnd, 22, [90, 230, 380, 520, 690, 860, 1010, 1120, 1250, 1400, 1540], 995, (300, 820), (1.5, 6), (7, 15), 0.6))
+    body.append(art.bubbles(rnd, 22, [90, 230, 380, 520, 690, 860, 1010, 1120, 1250, 1400, 1540], 995, (300, 820), (1.5, 6), (12, 24), 0.6))
     body.append(sand([996, 993, 995, 992, 995, 993, 996], "#06121e"))
 
     # Bioluminescent plankton: drifting upwards, pulsing.
