@@ -258,7 +258,7 @@ def jellyfish_def(uid: str, rnd: random.Random, s: dict, period: float) -> str:
 # --------------------------------------------------------------------------
 
 
-def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 7.2) -> str:
+def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> str:
     """Lionfish after a photo: robust banded body with wavy stripes that curve
     around the eye, feather-like pectoral blades that open and close slowly like a fan,
     long banded dorsal spines with streaming sails and frayed pale tips, fringed
@@ -330,9 +330,9 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 7.2) -> st
             blades, rays_d = [], []
             for i in range(rays):
                 phi = ph0 - i * 0.55
-                a = math.radians(amid + (base[i] - amid) * (0.76 + 0.36 * open_) + 9 * math.sin(phi))
-                bend = 0.34 * math.sin(phi - 1.4)
-                L = lens[i] * (0.95 + 0.07 * open_)
+                a = math.radians(amid + (base[i] - amid) * (0.55 + 0.6 * open_) + 13 * math.sin(phi) + 10 * (open_ - 0.5))
+                bend = 0.5 * math.sin(phi - 1.4)
+                L = lens[i] * (0.92 + 0.12 * open_)
                 W = widths[i] * (0.82 + 0.32 * open_)
                 at = ray_shape(cx, cy, a, L, bend)
 
@@ -521,8 +521,8 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 7.2) -> st
         f'<animate attributeName="stroke-opacity" values=".08;.35;.08" dur="{n(B)}s" repeatCount="indefinite" {PK}/></path>'
     )
 
-    far_pec = pectoral("f", 36, 10, 78, 170, 10, 112, 62, 0.08, 0.5)
-    near_pec = pectoral("n", 44, 14, 66, 168, 11, 128, 66, 0.0, 0.96)
+    far_pec = pectoral("f", 36, 12, 120, 215, 10, 112, 62, 0.1, 0.5)
+    near_pec = pectoral("n", 42, 16, 108, 208, 11, 128, 66, 0.0, 0.96)
     dors = dorsal()
     return (
         f'<g id="{uid}"><defs>{"".join(defs)}</defs><g>'
