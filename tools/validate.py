@@ -5,7 +5,7 @@
 * every theme passes the schema of homeassistant/components/frontend/helpers.py:
   {str: str, optional "modes": {optional "light"/"dark": {str: str}}, at least one mode}
 * sanity checks for this theme: hex colours, balanced url("…") / parentheses,
-  `fixed` background token.
+  correctly encoded SVG data URIs.
 * with --check-build: the file is up to date with tools/build.py (run locally;
   libm rounding may differ between platforms).
 
@@ -52,13 +52,11 @@ def check_vars(where: str, mapping: object) -> None:
             errors.append(f"{where}.{key}: unbalanced parentheses")
         if value.startswith("#") and not re.fullmatch(r"#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?([0-9a-fA-F]{2})?", value):
             errors.append(f"{where}.{key}: invalid hex colour {value!r}")
-        if key == "lovelace-background":
-            if "fixed" not in value.split(" "):
-                errors.append(f"{where}.{key}: missing standalone `fixed` token")
-            if not re.search(r'url\("data:image/svg\+xml,[^"]+"\)', value):
-                errors.append(f"{where}.{key}: expected url(\"data:image/svg+xml,…\")")
-            if re.search(r"[<>#]", value.split("data:image/svg+xml,", 1)[-1].split('")', 1)[0]):
-                errors.append(f"{where}.{key}: data URI contains unencoded <, > or #")
+        for uri in re.findall(r'url\("data:image/svg\+xml,([^"]*)"\)', value):
+            if re.search(r"[<>#]", uri):
+                errors.append(f"{where}.{key}: SVG data URI contains unencoded <, > or #")
+        if key == "ha-panel-background" and "data:image/svg+xml," not in value:
+            errors.append(f"{where}.{key}: expected the underwater SVG background")
 
 
 def validate_file(path: Path) -> None:

@@ -212,8 +212,8 @@ def reef_layer(rnd, xs, y, base, colors, scale_range, sway, thin=1.0) -> str:
 # --------------------------------------------------------------------------
 
 
-def caustics_block(png_b64: str, tile: int, opacity: float, fade_stops: str, dur: float = 46) -> str:
-    """Two caustic layers drifting across each other -> shimmering interference."""
+def caustics_block(png_b64: str, tile: int, opacity: float, fade_stops: str, dur: float = 30) -> str:
+    """Three caustic layers drifting across each other -> shimmering interference."""
     return f"""
 <defs>
  <pattern id="c1" patternUnits="userSpaceOnUse" width="{tile}" height="{tile}">
@@ -223,19 +223,29 @@ def caustics_block(png_b64: str, tile: int, opacity: float, fade_stops: str, dur
  <pattern id="c2" href="#c1" patternTransform="rotate(31) scale(1.55)">
   <animateTransform attributeName="patternTransform" type="translate" additive="sum" from="0 0" to="{-tile} {tile}" dur="{f(dur * 1.37)}s" repeatCount="indefinite"/>
  </pattern>
+ <pattern id="c3" href="#c1" patternTransform="rotate(-58) scale(.82)">
+  <animateTransform attributeName="patternTransform" type="translate" additive="sum" from="0 0" to="{tile} {-tile}" dur="{f(dur * 0.83)}s" repeatCount="indefinite"/>
+ </pattern>
  <linearGradient id="cf" x1="0" y1="0" x2="0" y2="1">{fade_stops}</linearGradient>
  <mask id="cm" maskUnits="userSpaceOnUse" x="0" y="0" width="{VIEW_W}" height="{VIEW_H}"><rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#cf)"/></mask>
 </defs>
 <g mask="url(#cm)" opacity="{opacity:g}">
- <animate attributeName="opacity" values="{opacity * 0.8:.3f};{opacity:.3f};{opacity * 0.85:.3f};{opacity * 0.8:.3f}" dur="7.3s" repeatCount="indefinite"/>
- <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c1)" opacity=".75"/>
- <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c2)" opacity=".6"/>
+ <animate attributeName="opacity" values="{opacity * 0.7:.3f};{opacity:.3f};{opacity * 0.8:.3f};{opacity:.3f};{opacity * 0.7:.3f}" dur="4.7s" repeatCount="indefinite"/>
+ <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c1)" opacity=".7">
+  <animate attributeName="opacity" values=".45;.85;.45" dur="3.1s" repeatCount="indefinite"/>
+ </rect>
+ <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c2)" opacity=".6">
+  <animate attributeName="opacity" values=".7;.3;.7" dur="3.9s" repeatCount="indefinite"/>
+ </rect>
+ <rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#c3)" opacity=".45">
+  <animate attributeName="opacity" values=".2;.6;.2" dur="2.6s" repeatCount="indefinite"/>
+ </rect>
 </g>"""
 
 
 def rays_block(color: str, strength: float) -> str:
     """Soft light shafts from the surface (gradients only, no filters)."""
-    rays = [(190, 120, 11, 0), (520, 190, 14, -4), (900, 100, 9, -7), (1180, 170, 13, -2), (1440, 110, 10, -5)]
+    rays = [(190, 120, 7, 0), (520, 190, 9, -4), (900, 100, 6, -3), (1180, 170, 8, -2), (1440, 110, 6.5, -5), (700, 70, 5, -1)]
     out = [
         f'<defs><radialGradient id="ray" cx=".5" cy="0" r="1" gradientTransform="translate(.5 0) scale(.5 1) translate(-.5 0)">'
         f'<stop offset="0" stop-color="{color}" stop-opacity="{strength:g}"/>'
@@ -245,11 +255,57 @@ def rays_block(color: str, strength: float) -> str:
     for x, w, dur, delay in rays:
         out.append(
             f'<g transform="translate({x} -60) skewX(-12)"><rect x="{-w / 2:g}" width="{w}" height="{int(VIEW_H * 0.85)}" fill="url(#ray)">'
-            f'<animate attributeName="opacity" values=".25;.9;.25" dur="{dur}s" begin="{delay}s" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1" repeatCount="indefinite"/>'
-            f'<animateTransform attributeName="transform" type="translate" values="-24 0;24 0;-24 0" dur="{dur}s" begin="{delay}s" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1" repeatCount="indefinite"/>'
+            f'<animate attributeName="opacity" values=".15;.95;.35;.8;.15" dur="{dur}s" begin="{delay}s" repeatCount="indefinite"/>'
+            f'<animateTransform attributeName="transform" type="translate" values="-40 0;30 0;-10 0;40 0;-40 0" dur="{dur * 1.6:g}s" begin="{delay}s" repeatCount="indefinite"/>'
             f"</rect></g>"
         )
     return "".join(out)
+
+
+def bubbles_block(rnd: random.Random, count: int, stroke: str, opacity: float, sources: list[float], y0: float, rise: tuple, size: tuple, dur: tuple) -> str:
+    """Air bubbles: thin rings that rise in a wobble and fade out (like appriff.de)."""
+    out = [f'<g fill="none" stroke="{stroke}" stroke-width="1.4">']
+    for _ in range(count):
+        x = rnd.choice(sources) + rnd.uniform(-60, 60)
+        y = y0 + rnd.uniform(-40, 30)
+        r = rnd.uniform(*size)
+        d = rnd.uniform(*dur)
+        h = rnd.uniform(*rise)
+        w = rnd.uniform(10, 26)
+        begin = -rnd.uniform(0, d)
+        path = ";".join(f"{f(w * math.sin(i * 1.7) * (i / 4))} {f(-h * i / 4)}" for i in range(5))
+        out.append(
+            f'<circle cx="{f(x)}" cy="{f(y)}" r="{r:.1f}" opacity="0">'
+            f'<animateTransform attributeName="transform" type="translate" values="{path}" dur="{f(d)}s" begin="{f(begin)}s" repeatCount="indefinite"/>'
+            f'<animate attributeName="opacity" values="0;{opacity:g};{opacity:g};0" keyTimes="0;.1;.75;1" dur="{f(d)}s" begin="{f(begin)}s" repeatCount="indefinite"/>'
+            f"</circle>"
+        )
+    out.append("</g>")
+    return "".join(out)
+
+
+def jellyfish(rnd: random.Random, x: float, y: float, scale: float, grad: str, stroke: str, dur: float) -> str:
+    """A glowing jellyfish: pulsing bell, waving tentacles, drifting up through the scene."""
+    tent = []
+    for i, tx in enumerate([-12, -6, 0, 6, 12]):
+        a, b = rnd.uniform(4, 9), rnd.uniform(4, 9)
+        l1 = rnd.uniform(40, 70)
+        d1 = f"M{tx} 0Q{tx + a} {f(l1 / 2)} {tx} {f(l1)}"
+        d2 = f"M{tx} 0Q{tx - b} {f(l1 / 2)} {tx + 3} {f(l1)}"
+        tent.append(
+            f'<path d="{d1}"><animate attributeName="d" values="{d1};{d2};{d1}" dur="{f(rnd.uniform(2.2, 3.4))}s" repeatCount="indefinite"/></path>'
+        )
+    bell = "M-20 0C-20-28 20-28 20 0C14-4 8 3 0 0C-8 3-14-4-20 0Z"
+    return (
+        f'<g transform="translate({f(x)} {f(y)})">'
+        f'<animateTransform attributeName="transform" type="translate" additive="sum" values="0 0;{f(rnd.uniform(-80, 80))} -{VIEW_H + 300}" dur="{f(dur)}s" begin="{f(-rnd.uniform(0, dur))}s" repeatCount="indefinite"/>'
+        f'<g transform="scale({scale:g})">'
+        f'<animateTransform attributeName="transform" type="scale" additive="sum" values="1 1;1.12 .86;1 1" dur="2.6s" repeatCount="indefinite"/>'
+        f'<circle r="46" cy="-6" fill="url(#{grad})" opacity=".35"/>'
+        f'<path d="{bell}" fill="url(#{grad})" stroke="{stroke}" stroke-width=".8" stroke-opacity=".7"/>'
+        f'<g fill="none" stroke="{stroke}" stroke-width=".9" stroke-opacity=".55">{"".join(tent)}</g>'
+        f"</g></g>"
+    )
 
 
 def svg_wrap(body: str, bg_stops: str) -> str:
@@ -273,21 +329,36 @@ def background_coral(png_b64: str) -> str:
     """Light: sunlit coral reef lagoon."""
     rnd = random.Random(20260925)
     body = [rays_block("#ffffff", 0.55)]
-    body.append(caustics_block(png_b64, 224, 0.55, stops((0, "#fff", 0.85), (0.5, "#fff", 0.45), (1, "#fff", 0.9))))
+    body.append(caustics_block(png_b64, 224, 0.72, stops((0, "#fff", 0.9), (0.5, "#fff", 0.5), (1, "#fff", 0.95))))
+    # Sunlit specks drifting in the water.
+    specks = ['<g fill="#ffffff">']
+    for _ in range(28):
+        x, y, d = rnd.uniform(0, VIEW_W), rnd.uniform(60, 820), rnd.uniform(9, 20)
+        b = -rnd.uniform(0, d)
+        specks.append(
+            f'<circle cx="{f(x)}" cy="{f(y)}" r="{rnd.uniform(1.2, 3.2):.1f}" opacity="0">'
+            f'<animate attributeName="opacity" values="0;{rnd.uniform(.5, .9):.2f};0" dur="{f(d)}s" begin="{f(b)}s" repeatCount="indefinite"/>'
+            f'<animateTransform attributeName="transform" type="translate" values="0 0;{f(rnd.uniform(-90, 90))} {f(rnd.uniform(-60, 60))}" dur="{f(d)}s" begin="{f(b)}s" repeatCount="indefinite"/>'
+            f"</circle>"
+        )
+    specks.append("</g>")
+    body.append("".join(specks))
     # Reef: back silhouettes, muted middle, colourful front, sandy floor.
-    back = reef_layer(rnd, [80, 380, 700, 1020, 1330, 1560], 865, BIG, [("#7fcbd6", "#93d6df")], (0.75, 0.95), (1.2, 14))
+    back = reef_layer(rnd, [80, 380, 700, 1020, 1330, 1560], 865, BIG, [("#7fcbd6", "#93d6df")], (0.75, 0.95), (2.6, 8))
     mid = reef_layer(rnd, [220, 540, 860, 1180, 1480], 905, BIG,
-                     [("#6fd3d1", "#93e2e0"), ("#a796e8", "#bcaff0"), ("#f3a79c", "#f8c0b8"), ("#7eaff2", "#a2c6f7")], (0.62, 0.72), (1.5, 12))
+                     [("#6fd3d1", "#93e2e0"), ("#a796e8", "#bcaff0"), ("#f3a79c", "#f8c0b8"), ("#7eaff2", "#a2c6f7")], (0.62, 0.72), (3, 7))
     front_small = reef_layer(rnd, [300, 690, 1080, 1470], 945, SMALL,
-                             [("#ff968a", "#ffb8ae"), ("#60a5f8", "#95c3ff"), ("#5ce8e6", "#8ff1ef"), ("#a07af6", "#bfa6ff")], (0.95, 1.05), (2.2, 9))
+                             [("#ff968a", "#ffb8ae"), ("#60a5f8", "#95c3ff"), ("#5ce8e6", "#8ff1ef"), ("#a07af6", "#bfa6ff")], (0.95, 1.05), (4, 5.5))
     front = reef_layer(rnd, [120, 480, 880, 1270, 1580], 945, BIG,
-                       [("#5ce8e6", "#8ff1ef"), ("#a07af6", "#bfa6ff"), ("#ff968a", "#ffb8ae"), ("#60a5f8", "#95c3ff")], (0.95, 1.05), (1.8, 10))
+                       [("#5ce8e6", "#8ff1ef"), ("#a07af6", "#bfa6ff"), ("#ff968a", "#ffb8ae"), ("#60a5f8", "#95c3ff")], (0.95, 1.05), (3.5, 6))
+    bubbles = bubbles_block(rnd, 46, "#ffffff", 0.8, [120, 300, 480, 690, 880, 1080, 1270, 1470, 1580], 905, (380, 900), (2, 7.5), (5, 12))
     body.append(
         f'<g fill="none" stroke-linecap="round" opacity=".45">{back}</g>'
         f'<path fill="#a9dfe5" fill-opacity=".8" d="M0 860 C200 835 380 850 560 842 S920 820 1100 838 S1420 848 1600 832 V1000 H0Z"/>'
         f'<g fill="none" stroke-linecap="round" opacity=".6">{mid}</g>'
         f'<path fill="#e6dcc0" d="M0 905 C220 885 420 900 640 892 S1000 878 1220 895 S1480 902 1600 885 V1000 H0Z"/>'
         f'<g fill="none" stroke-linecap="round" opacity=".8">{front_small}{front}</g>'
+        f"{bubbles}"
         f'<path fill="#f3ead5" d="M0 942 C180 928 400 936 620 930 S1000 920 1220 933 S1480 938 1600 926 V1000 H0Z"/>'
     )
     return svg_wrap(
@@ -307,6 +378,12 @@ def background_abyss(png_b64: str) -> str:
             f'<stop offset=".18" stop-color="{c}" stop-opacity=".85"/><stop offset=".45" stop-color="{c}" stop-opacity=".22"/>'
             f'<stop offset="1" stop-color="{c}" stop-opacity="0"/></radialGradient>'
         )
+    jelly = [("jf0", "#3df5e0"), ("jf1", "#b57cff"), ("jf2", "#ff5fd2")]
+    for gid, c in jelly:
+        defs.append(
+            f'<radialGradient id="{gid}" cy=".7" r=".7"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>'
+            f'<stop offset=".35" stop-color="{c}" stop-opacity=".45"/><stop offset="1" stop-color="{c}" stop-opacity="0"/></radialGradient>'
+        )
     defs.append(
         '<radialGradient id="haze" cx=".5" cy="0" r=".9"><stop offset="0" stop-color="#1b6f9a" stop-opacity=".35"/>'
         '<stop offset="1" stop-color="#1b6f9a" stop-opacity="0"/></radialGradient>'
@@ -320,8 +397,16 @@ def background_abyss(png_b64: str) -> str:
         f'<rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#floor)"/>',
     ]
     # Faint light from far above.
-    body.append(rays_block("#8fe9ff", 0.10))
-    body.append(caustics_block(png_b64, 260, 0.08, stops((0, "#fff", 1), (0.3, "#fff", 0.2), (0.5, "#fff", 0))))
+    body.append(rays_block("#8fe9ff", 0.12))
+    body.append(caustics_block(png_b64, 260, 0.13, stops((0, "#fff", 1), (0.3, "#fff", 0.25), (0.55, "#fff", 0))))
+    # Jellyfish drifting up through the deep.
+    body.append(
+        '<g opacity=".75">'
+        + jellyfish(rnd, 330, VIEW_H + 160, 2.6, "jf0", "#7dfff0", 75)
+        + jellyfish(rnd, 1050, VIEW_H + 160, 1.9, "jf1", "#cfa8ff", 98)
+        + jellyfish(rnd, 1420, VIEW_H + 160, 1.4, "jf2", "#ff9be4", 120)
+        + "</g>"
+    )
 
     # Glowing tendrils on the floor: thin neon strokes with glowing tips.
     tend = []
@@ -329,20 +414,21 @@ def background_abyss(png_b64: str) -> str:
     for layer, (y, scale, op, thin) in enumerate([(880, (0.7, 0.9), 0.4, 0.22), (930, (0.85, 1.05), 0.8, 0.18)]):
         xs = [90, 400, 720, 1040, 1350, 1570] if layer == 0 else [210, 560, 880, 1210, 1500]
         rnd_l = random.Random(1000 + layer)
-        lines = reef_layer(rnd_l, xs, y, BIG, neon[layer:] + neon[:layer], scale, (2.0, 11), thin=thin)
+        lines = reef_layer(rnd_l, xs, y, BIG, neon[layer:] + neon[:layer], scale, (3.5, 7), thin=thin)
         tend.append(f'<g fill="none" stroke-linecap="round" opacity="{op:g}">{lines}'
-                    f'<animate attributeName="opacity" values="{op:g};{op * 0.55:.3f};{op:g}" dur="{9 + layer * 4}s" repeatCount="indefinite"/></g>')
+                    f'<animate attributeName="opacity" values="{op:g};{op * 0.45:.3f};{op:g}" dur="{5 + layer * 2.5}s" repeatCount="indefinite"/></g>')
     body.append("".join(tend))
+    body.append(bubbles_block(rnd, 20, "#7dfff0", 0.35, [210, 560, 880, 1210, 1500], 920, (300, 800), (1.5, 5), (7, 15)))
 
     # Bioluminescent plankton: drifting upwards, pulsing.
     parts = []
-    for i in range(46):
+    for i in range(84):
         x = rnd.uniform(0, VIEW_W)
         y = rnd.uniform(120, VIEW_H)
         r = rnd.choice([3, 4, 5, 6, 8, 11, 15]) * rnd.uniform(0.8, 1.2)
         g = rnd.choices(range(len(glow)), weights=[5, 3, 2, 1, 1])[0]
-        dur = rnd.uniform(18, 42)
-        rise = rnd.uniform(80, 260)
+        dur = rnd.uniform(12, 28)
+        rise = rnd.uniform(120, 380)
         drift = rnd.uniform(-40, 40)
         begin = -rnd.uniform(0, dur)
         peak = rnd.uniform(0.45, 1.0)
@@ -370,6 +456,33 @@ def background_abyss(png_b64: str) -> str:
     )
 
 
+def border_svg(colors: list[str], opacity: float, width: float, radius: int, dur: float = 16) -> str:
+    """Hairline with an animated colour gradient, drawn as a background layer of the card.
+
+    The SVG has no size of its own, so it fills the card and 1 user unit is 1 CSS px:
+    a rounded rect with the radius of the card, stroked on its edge (half the stroke
+    is clipped away, the other half is the hairline). The gradient rotates and its
+    colours cycle through the palette.
+    """
+    n = len(colors)
+    cyc = colors + [colors[0]]
+    stops_ = []
+    for i in range(n + 1):
+        seq = [cyc[(i + k) % n] for k in range(n)] + [cyc[i % n]]
+        stops_.append(
+            f'<stop offset="{i / n:.3f}" stop-color="{cyc[i % n]}">'
+            f'<animate attributeName="stop-color" values="{";".join(seq)}" dur="{f(dur * 0.75)}s" repeatCount="indefinite"/></stop>'
+        )
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg"><defs>'
+        '<linearGradient id="l" x1="0" y1=".5" x2="1" y2=".5">'
+        f'{"".join(stops_)}'
+        f'<animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="360 .5 .5" dur="{f(dur)}s" repeatCount="indefinite"/>'
+        "</linearGradient></defs>"
+        f'<rect width="100%" height="100%" rx="{radius}" fill="none" stroke="url(#l)" stroke-width="{width * 2:g}" stroke-opacity="{opacity:g}"/></svg>'
+    )
+
+
 def data_uri(svg: str) -> str:
     """Minimal URL-encoding for an SVG data URI used inside url("…")."""
     svg = svg.replace('"', "'")
@@ -384,24 +497,32 @@ def data_uri(svg: str) -> str:
 # Theme variables
 # --------------------------------------------------------------------------
 
-FONT = '"Avenir Next", "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif'
+RADIUS = 13  # px, cards and badges; the gradient hairline uses the same radius
+
+# "Avenir" first: unlike Avenir Next it has a real Light (300) that stays readable.
+FONT = '"Avenir", "Avenir Next", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif'
 
 
 def shared_vars() -> dict[str, str]:
     return {
         "ha-font-family-body": FONT,
         "ha-font-family-heading": FONT,
-        "ha-font-weight-heading": "500",
-        "ha-font-weight-action": "500",
+        "ha-font-weight-light": "200",
+        "ha-font-weight-normal": "300",
+        "ha-font-weight-body": "300",
+        "ha-font-weight-medium": "400",
+        "ha-font-weight-bold": "500",
+        "ha-font-weight-heading": "300",
+        "ha-font-weight-action": "400",
         "ha-card-header-font-size": "var(--ha-font-size-xl)",
         # Shape: soft, modern, hairlines everywhere.
-        "ha-card-border-radius": "20px",
+        "ha-card-border-radius": f"{RADIUS}px",
         "ha-card-border-width": "0.5px",
-        "ha-section-border-radius": "24px",
-        "ha-dialog-border-radius": "26px",
+        "ha-section-border-radius": "16px",
+        "ha-dialog-border-radius": "17px",
         "ha-button-border-radius": "999px",
-        "ha-badge-border-radius": "999px",
-        "ha-card-backdrop-filter": "blur(14px) saturate(160%)",
+        "ha-badge-border-radius": f"{RADIUS}px",
+        "ha-card-backdrop-filter": "blur(8px) saturate(150%)",
         "app-header-backdrop-filter": "blur(18px) saturate(160%)",
         "ha-dialog-surface-backdrop-filter": "blur(26px) saturate(170%)",
         "ha-bottom-sheet-surface-backdrop-filter": "blur(26px) saturate(170%)",
@@ -440,7 +561,7 @@ def coral_vars(background: str) -> dict[str, str]:
         "text-primary-color": "#ffffff",
         "text-accent-color": "#ffffff",
         "primary-text-color": ink,
-        "secondary-text-color": "#4d7486",
+        "secondary-text-color": "#3a6375",
         "disabled-text-color": "#9fb8c2",
         "disabled-color": "#8fcdd8",
         "primary-background-color": "#e8f8f9",
@@ -457,10 +578,13 @@ def coral_vars(background: str) -> dict[str, str]:
         "success-color": "#1fae86",
         "info-color": "#2d9cdb",
         "state-icon-color": "#0f8fa1",
-        "lovelace-background": f'url("{background}") center bottom / cover no-repeat fixed #85d6e0',
+        # The underwater scene sits behind every panel (sidebar, dashboards, settings).
+        "ha-panel-background": f'url("{background}") center bottom / cover no-repeat #85d6e0',
+        "lovelace-background": "transparent",
+        "ha-panel-toolbar-background": "rgba(240, 252, 252, 0.4)",
         # Glass cards with a hairline in the reef colour.
-        "ha-card-background": "rgba(255, 255, 255, 0.46)",
-        "ha-card-border-color": rgba(line, 0.42),
+        "ha-card-background": f'url("{data_uri(border_svg(["#14bfc4", "#3d8ef2", "#8f6cf0", "#ff7a6b"], 0.85, 0.6, RADIUS))}") 0 0 / 100% 100% no-repeat border-box, linear-gradient(155deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2) 60%, rgba(255, 255, 255, 0.32))',
+        "ha-card-border-color": "transparent",
         "ha-card-box-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 10px 30px -14px rgba(8, 70, 90, 0.35)",
         "ha-button-box-shadow": f"inset 0 0 0 0.5px {rgba(line, 0.55)}",
         "ha-section-background-color": "rgba(255, 255, 255, 0.22)",
@@ -472,7 +596,7 @@ def coral_vars(background: str) -> dict[str, str]:
         "app-header-edit-background-color": "#0b5d6e",
         "app-header-edit-text-color": "#ffffff",
         "app-theme-color": "#c4eef1",
-        "sidebar-background-color": "#e3f6f7",
+        "sidebar-background-color": "rgba(236, 250, 251, 0.5)",
         "sidebar-text-color": ink,
         "sidebar-icon-color": rgba(ink, 0.62),
         "sidebar-selected-text-color": primary,
@@ -537,7 +661,7 @@ def abyss_vars(background: str) -> dict[str, str]:
         "text-accent-color": "#12002a",
         "text-light-primary-color": "#001a1f",
         "primary-text-color": ink,
-        "secondary-text-color": "#86aebd",
+        "secondary-text-color": "#a0c6d3",
         "disabled-text-color": "#4e6b78",
         "disabled-color": "#2f7480",
         "primary-background-color": "#020a14",
@@ -555,10 +679,12 @@ def abyss_vars(background: str) -> dict[str, str]:
         "info-color": "#5ccbff",
         "state-icon-color": "#5ce8ff",
         "state-active-color": "#ffd166",
-        "lovelace-background": f'url("{background}") center bottom / cover no-repeat fixed #020c19',
+        "ha-panel-background": f'url("{background}") center bottom / cover no-repeat #020c19',
+        "lovelace-background": "transparent",
+        "ha-panel-toolbar-background": "rgba(3, 14, 26, 0.45)",
         # Glass in the abyss: dark, translucent, glowing hairline.
-        "ha-card-background": "rgba(6, 24, 40, 0.42)",
-        "ha-card-border-color": rgba(line, 0.32),
+        "ha-card-background": f'url("{data_uri(border_svg(["#3df5e0", "#5ccbff", "#b57cff", "#ff5fd2"], 0.75, 0.6, RADIUS))}") 0 0 / 100% 100% no-repeat border-box, linear-gradient(155deg, rgba(110, 220, 255, 0.1), rgba(8, 30, 50, 0.2) 55%, rgba(6, 24, 40, 0.32))',
+        "ha-card-border-color": "transparent",
         "ha-card-box-shadow": f"inset 0 1px 0 rgba(160, 255, 245, 0.07), 0 0 22px -8px {rgba(line, 0.28)}",
         "ha-button-box-shadow": f"inset 0 0 0 0.5px {rgba(line, 0.5)}, 0 0 12px -4px {rgba(line, 0.35)}",
         "ha-section-background-color": "rgba(6, 24, 40, 0.25)",
@@ -570,7 +696,7 @@ def abyss_vars(background: str) -> dict[str, str]:
         "app-header-edit-background-color": "#2a1050",
         "app-header-edit-text-color": "#f0e2ff",
         "app-theme-color": "#041627",
-        "sidebar-background-color": "#030e1b",
+        "sidebar-background-color": "rgba(2, 10, 20, 0.45)",
         "sidebar-text-color": ink,
         "sidebar-icon-color": rgba(ink, 0.6),
         "sidebar-selected-text-color": primary,

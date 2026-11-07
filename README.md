@@ -27,10 +27,10 @@ The file has three themes:
 ## Features
 
 - **Works with the built-in cards and pages.** The theme sets the classic variables and the newer `ha-color-*` design tokens, with a full primary palette. Tiles, badges, buttons, sliders, switches, dialogs, inputs, the sidebar, the header, and the settings pages all take on the theme.
-- **Hairlines.** Cards, badges, sections, the header, dialogs and buttons get a 0.5 px line in the colour of the theme. Retina screens show it as a hairline, other screens round it up to 1 px.
-- **Glass.** Cards, badges, the dashboard header, and dialogs are translucent, with a backdrop blur.
-- **Animated background.** Caustics, light shafts, swaying corals, and drifting plankton. It is one self-contained SVG, built into the theme file: nothing to copy to `www/`, no external requests, no custom cards, no card-mod.
-- **Thin and modern.** System fonts (Avenir Next, SF Pro, Segoe UI Variable, Roboto as fallback), round corners, quiet shadows.
+- **Gradient hairlines.** Every card and badge gets a 0.5 px line with a colour gradient (cyan, blue, violet, coral) that slowly turns and shifts its colours. The header, dialogs, and buttons get a hairline in the colour of the theme.
+- **Glass everywhere.** Cards, badges, the sidebar, the header, the toolbars of the settings pages, and dialogs are translucent, with a backdrop blur. The underwater scene sits behind every panel, so the glass works on dashboards, in the settings, and behind the sidebar.
+- **A living background.** Shimmering caustics in three layers, flickering light shafts, swaying corals, rising air bubbles and sunlit specks (Reef Coral), bioluminescent plankton, glowing tendrils and drifting jellyfish (Reef Abyss). It is one self-contained SVG, built into the theme file: nothing to copy to `www/`, no external requests, no custom cards, no card-mod.
+- **Fine and modern.** Light font weights (Avenir Light on Apple devices, Segoe UI Variable on Windows, Roboto as fallback), corners with a 13 px radius, quiet shadows.
 
 <!-- ha-marketplace:exclude-start -->
 ## Installation
@@ -63,14 +63,9 @@ You can also set the theme on one dashboard view only, with `theme: Reef Abyss` 
 
 ## Performance
 
-The background animates with SVG (SMIL), drawn by the browser. Phones, tablets, and computers from the last years handle it without trouble. On a weak wall tablet, you can keep the glass and hairlines but give a single view a still background, which wins over the background of the theme:
+The background and the hairlines animate with SVG (SMIL), drawn by the browser. Phones, tablets, and computers from the last years handle it without trouble. Very weak wall tablets may stutter: the animation is part of the theme and can not be turned off per device.
 
-```yaml
-views:
-  - title: Home
-    background: "linear-gradient(180deg, #e4fafa, #85d6e0)"   # Reef Coral colours
-    # background: "linear-gradient(180deg, #06243a, #01060e)" # Reef Abyss colours
-```
+The theme file is about 400 KB, because the backgrounds are built into it. Home Assistant sends it once per connection.
 
 ## Customize
 
@@ -85,7 +80,7 @@ The background previews are in [`assets/`](assets/): open them in a browser to s
 
 ## Compatibility
 
-Tested with Home Assistant 2026.11. Older versions load the theme too; components that do not know a variable just ignore it.
+Needs Home Assistant 2026.11 or later: the theme puts the background behind all panels with `ha-panel-background`, which older versions don't draw everywhere. Tested with 2026.11.0.
 
 ## License
 
