@@ -20,12 +20,14 @@ I love the sea and the underwater world, hence the theme. 🙂
 
 ## Themes
 
-The file has two themes. Both follow the light/dark setting of your profile or device: by day a sunlit coral reef, by night the bioluminescent deep sea.
+**Reef** and **Reef Lite** follow the light/dark setting of your profile or device: by day a sunlit coral reef, by night the bioluminescent deep sea. **Reef Coral** (always light) and **Reef Abyss** (always dark) are the animated scenes with a fixed mode.
 
 | Theme | Background | For |
 | --- | --- | --- |
 | **Reef** | Fully animated: animals swimming at different depths, swaying corals, bubbles, plankton, caustics, light shafts | Computers and recent tablets |
 | **Reef Lite** | The same scene as a still picture with a calm shimmer of light; still hairlines; lighter glass | Phones, the Companion apps, wall tablets, battery |
+| **Reef Coral** | Like Reef, always light | Fixed light look, e.g. on one dashboard view |
+| **Reef Abyss** | Like Reef, always dark | Fixed dark look, e.g. on one dashboard view |
 
 ## Features
 
@@ -62,7 +64,7 @@ The file has two themes. Both follow the light/dark setting of your profile or d
      themes: !include_dir_merge_named themes
    ```
 
-2. Open your **profile** and pick **Reef** or **Reef Lite** under *Theme*. The *Dark mode* setting next to it switches between the coral reef and the deep sea.
+2. Open your **profile** and pick **Reef**, **Reef Lite**, **Reef Coral** or **Reef Abyss** under *Theme*. The *Dark mode* setting next to it switches between the coral reef and the deep sea.
 
 The theme belongs to the browser settings of your profile, so each device can have its own: you can use **Reef** on the computer and **Reef Lite** on the phone or a wall tablet. You can also set the theme on one dashboard view only, with `theme: Reef Lite` in the view configuration.
 
@@ -78,7 +80,7 @@ Animated backgrounds cost processing power: an animated SVG image is redrawn whe
 
 What makes **Reef** lighter: pre-computed stripes instead of dash patterns, no blur filters, no masks, fewer particles, and the scene split into four stacked images, of which the water and both reef layers only change ten times per second. **Reef Lite** shows a still scene and lets the light shimmer in eight small steps per second, with still hairlines and less blur behind the glass.
 
-If the app feels slow, switch that device to **Reef Lite**. The theme file is about 900 KB (both themes); Home Assistant sends it once per connection.
+If the app feels slow, switch that device to **Reef Lite**. The theme file is about 1.5 MB (four themes); Home Assistant sends it once per connection.
 
 ## Companion apps
 

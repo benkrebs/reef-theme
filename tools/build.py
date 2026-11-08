@@ -1005,13 +1005,18 @@ def main() -> None:
         "# GENERATED FILE: edit tools/build.py and run `python3 tools/build.py`.",
         "#",
         "#   Reef       animated reef / deep sea, follows the light/dark setting",
+        "#   Reef Coral always light (animated)   Reef Abyss  always dark (animated)",
         "#   Reef Lite  same look with a still scene and a calm shimmer: for phones,",
         "#              the Companion app and wall tablets",
         "",
     ]
     out = header
     out += emit("Reef", shared, light, dark) + [""]
-    out += emit("Reef Lite", lite_shared, light_lite, dark_lite)
+    out += emit("Reef Lite", lite_shared, light_lite, dark_lite) + [""]
+    # Kept for existing setups (profiles, views and automations that name them):
+    # the animated scenes with a fixed mode.
+    out += emit("Reef Coral", {**shared, **light}, None, None) + [""]
+    out += emit("Reef Abyss", shared, None, dark)
     THEME_FILE.parent.mkdir(exist_ok=True)
     THEME_FILE.write_text("\n".join(out) + "\n")
     print(f"caustics.png   {len(png) / 1024:6.1f} KiB")
