@@ -15,6 +15,31 @@ import math
 import random
 
 TAU = math.tau
+
+# Lite mode: no swimming, no per-frame body animation; animals and particles
+# are placed as a still scene (only the caustics keep moving, see build.py).
+STATIC = False
+
+
+def dashes(d_lines: list[tuple], on: float, off: float, offset: float = 0.0, dot: bool = False) -> str:
+    """Pre-computed dashes for straight segments: static geometry instead of a
+    stroke-dasharray that the engine has to recompute on every frame."""
+    out = []
+    for (x1, y1), (x2, y2) in d_lines:
+        L = math.hypot(x2 - x1, y2 - y1)
+        if L == 0:
+            continue
+        ux, uy = (x2 - x1) / L, (y2 - y1) / L
+        p = -offset
+        while p < L:
+            a, b = max(0.0, p), min(L, p + on)
+            if b > a:
+                if dot:
+                    out.append(f"M{n(x1 + ux * a)} {n(y1 + uy * a)}h.1")
+                else:
+                    out.append(f"M{n(x1 + ux * a)} {n(y1 + uy * a)}L{n(x1 + ux * b)} {n(y1 + uy * b)}")
+            p += on + off
+    return "".join(out)
 PULSE = 'calcMode="spline" keyTimes="0;.3;1" keySplines=".3 0 .2 1;.4 0 .6 1"'
 EASE = 'calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1"'
 
@@ -123,6 +148,13 @@ def swim(ref: str, path_pts, dur: float, begin: float, scale: float, opacity: fl
     op = f' opacity="{opacity:.2f}"' if opacity < 1 else ""
     fl = f' filter="url(#{blur})"' if blur else ""
     rot = ' rotate="auto"' if auto else ""
+    if STATIC:
+        # a still: place the animal somewhere along its path, facing its heading
+        k = max(1, min(len(path_pts) - 2, int(len(path_pts) * (0.3 + 0.4 * ((begin * 7.3) % 1)))))
+        (x0, y0), (x1, y1) = path_pts[k - 1], path_pts[k + 1]
+        px, py = path_pts[k]
+        ang = math.degrees(math.atan2(y1 - y0, x1 - x0)) if auto else 0
+        return f'<g{op}{fl} transform="translate({n(px)} {n(py)}) rotate({n(ang)})"><use href="#{ref}" transform="{tf}"/></g>'
     return (
         f'<g{op}{fl}><animateMotion path="{smooth(path_pts)}" dur="{n(dur)}s" begin="{n(-begin)}s" repeatCount="indefinite"{rot}/>'
         f'<use href="#{ref}" transform="{tf}"/></g>'
@@ -151,7 +183,7 @@ def creature(ref: str, species: str, z: float, rnd: random.Random, start, end, s
     length = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
     dur = length / (speed * scale)
     opacity = 0.38 + 0.62 * z
-    blur = "fz1" if z < 0.3 else ""
+    blur = ""
     return swim(ref, pts, dur, rnd.uniform(0, dur), scale, opacity, blur=blur)
 
 
@@ -359,13 +391,18 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
                 rot_b.append(28 * math.sin(phi - 1.3))
             va = ";".join(f"{n(r)} {n(cx)} {n(cy)}" for r in rot_a)
             vb = ";".join(f"{n(r)} {n(jx)} {n(jy)}" for r in rot_b)
-            band = lambda d, w: (f'<path d="{d}" fill="none" stroke="{s["spine"]}" stroke-width="{w:g}" stroke-linecap="round"/>'
-                                 f'<path d="{d}" fill="none" stroke="{s["stripe"]}" stroke-width="{w + 0.15:g}" stroke-dasharray="9 7" stroke-dashoffset="{(i * 5.3) % 16:.1f}"/>')
+            off0 = (i * 5.3) % 16
+
+            def band(p1, p2, w, off=off0):
+                return (f'<path d="M{pt(p1)}L{pt(p2)}" fill="none" stroke="{s["spine"]}" stroke-width="{w:g}" stroke-linecap="round"/>'
+                        f'<path d="{dashes([(p1, p2)], 9, 7, off)}" fill="none" stroke="{s["stripe"]}" stroke-width="{w + 0.15:g}"/>')
+            ra = "" if STATIC else f'<animateTransform attributeName="transform" type="rotate" values="{va}" dur="{n(B)}s" repeatCount="indefinite"/>'
+            rb = "" if STATIC else f'<animateTransform attributeName="transform" type="rotate" values="{vb}" dur="{n(B)}s" repeatCount="indefinite"/>'
             out.append(
-                f'<g><animateTransform attributeName="transform" type="rotate" values="{va}" dur="{n(B)}s" repeatCount="indefinite"/>'
-                f'<path d="{inner}" stroke="{s["blade_out"]}" stroke-width=".6" stroke-opacity=".4"/>{band(ray_in, 1.4)}'
-                f'<g><animateTransform attributeName="transform" type="rotate" values="{vb}" dur="{n(B)}s" repeatCount="indefinite"/>'
-                f'<path d="{outer}" stroke="{s["blade_out"]}" stroke-width=".6" stroke-opacity=".5"/>{band(ray_out, 1.4)}</g></g>'
+                f'<g>{ra}'
+                f'<path d="{inner}" stroke="{s["blade_out"]}" stroke-width=".6" stroke-opacity=".4"/>{band((cx, cy), on(0.6), 1.4)}'
+                f'<g>{rb}'
+                f'<path d="{outer}" stroke="{s["blade_out"]}" stroke-width=".6" stroke-opacity=".5"/>{band(on(0.56), on(1.04), 1.4, off0 + 0.56 * L)}</g></g>'
             )
         out.append("</g>")
         return "".join(out)
@@ -401,7 +438,7 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
             out.append(
                 f"<g>{osc(7, -i * 0.5, bases[i][0], bases[i][1], B)}{web}"
                 f'<path d="{spine}" fill="none" stroke="{s["spine"]}" stroke-width="2.4" stroke-linecap="round"/>'
-                f'<path d="{spine}" fill="none" stroke="{s["stripe"]}" stroke-width="2.55" stroke-dasharray="9 7" stroke-dashoffset="{(i * 5.3) % 16:.1f}"/>'
+                f'<path d="{dashes([(bases[i], P(i, 1.0))], 9, 7, (i * 5.3) % 16)}" fill="none" stroke="{s["stripe"]}" stroke-width="2.55"/>'
                 f'<g>{osc(9, -i * 0.5 - 1.2, jx, jy, B)}<path d="{flag}" fill="url(#{uid}sl)"/></g></g>'
             )
         return "".join(out)
@@ -415,16 +452,17 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
         jx, jy = mid(inner_tips[0], inner_tips[-1])
         inner = smooth([(cx, cy)] + inner_tips, closed=True)
         outer = smooth(inner_tips[::-1] + outer_tips, closed=True)
-        rays_in = "".join(f"M{n(cx)} {n(cy)}L{pt(p)}" for p in inner_tips)
-        rays_out = "".join(f"M{pt(a)}L{pt(b)}" for a, b in zip(inner_tips, outer_tips))
+        seg_in = [((cx, cy), p) for p in inner_tips]
+        seg_out = list(zip(inner_tips, outer_tips))
 
-        def ray_paths(d):
+        def ray_paths(segs):
+            d = "".join(f"M{pt(a)}L{pt(b)}" for a, b in segs)
             return (f'<path d="{d}" stroke="{s["spine"]}" stroke-width=".7" stroke-opacity=".7" fill="none"/>'
-                    f'<path d="{d}" stroke="{s["stripe"]}" stroke-width="2.6" stroke-dasharray=".1 7" stroke-linecap="round" stroke-opacity=".8" fill="none"/>')
+                    f'<path d="{dashes(segs, 0.1, 7, 0, dot=True)}" stroke="{s["stripe"]}" stroke-width="2.6" stroke-linecap="round" stroke-opacity=".8" fill="none"/>')
         return (f"<g>{osc(amp * 0.6, 0, cx, cy, B)}"
-                f'<path d="{inner}" fill="url(#{uid}md)"/>{ray_paths(rays_in)}'
+                f'<path d="{inner}" fill="url(#{uid}md)"/>{ray_paths(seg_in)}'
                 f"<g>{osc(amp, -1.1, jx, jy, B)}"
-                f'<path d="{outer}" fill="url(#{uid}md)"/>{ray_paths(rays_out)}</g></g>')
+                f'<path d="{outer}" fill="url(#{uid}md)"/>{ray_paths(seg_out)}</g></g>')
 
     caudal = soft_fin("c", -86, 0, 140, 220, 11, 52, 10, 1)
     soft_dorsal = soft_fin("d", -44, -30, 195, 255, 9, 46, 7, 1)
@@ -495,17 +533,18 @@ def lionfish_def(uid: str, rnd: random.Random, s: dict, beat: float = 6.0) -> st
         + fringe(97, 15, 14, 95, 4) + fringe(88, 21, 16, 100, 5) + fringe(76, 26, 12, 105, 3)
     )
 
-    pelvic_rays = []
+    pelvic_rays, pelvic_segs = [], []
     for i in range(4):
         a = math.radians(98 + i * 9)
         L = 60 - i * 6
         pelvic_rays.append(f"M38 26L{n(38 + L * math.cos(a))} {n(26 + L * math.sin(a))}")
+        pelvic_segs.append(((38, 26), (38 + L * math.cos(a), 26 + L * math.sin(a))))
     pelvic = (
         f"<g>{anim_rot([-6, 6, -6], 38, 26, B, extra=' ' + EASE)}"
         f'<path d="M38 26L{n(38 + 56 * math.cos(math.radians(98)))} {n(26 + 56 * math.sin(math.radians(98)))}'
         f'Q26 76 {n(38 + 42 * math.cos(math.radians(125)))} {n(26 + 42 * math.sin(math.radians(125)))}Z" fill="{s["sail"]}" fill-opacity=".5"/>'
         f'<path d="{"".join(pelvic_rays)}" stroke="{s["spine"]}" stroke-width="1.4" stroke-linecap="round"/>'
-        f'<path d="{"".join(pelvic_rays)}" stroke="{s["stripe"]}" stroke-width="1.5" stroke-dasharray="5 5"/></g>'
+        f'<path d="{dashes(pelvic_segs, 5, 5)}" stroke="{s["stripe"]}" stroke-width="1.5"/></g>'
     )
 
     # ---- mystic aura that breathes with the fins, a rim light and sparkles
@@ -663,12 +702,15 @@ def bubbles(rnd: random.Random, count: int, sources: list[float], y0: float, ris
         w = rnd.uniform(10, 28)
         b = -rnd.uniform(0, d)
         path = ";".join(f"{n(w * math.sin(i * 1.7) * (i / 5))} {n(-h * i / 5)}" for i in range(6))
+        if STATIC:
+            q = rnd.uniform(0.05, 0.8)
+            out.append(f'<use href="#bub" transform="translate({n(x + w * math.sin(q * 8.5) * q)} {n(y - h * q)}) scale({k:.2f})" opacity="{opacity * (1 - q) * 0.9:.2f}"/>')
+            continue
         out.append(
             f'<g transform="translate({n(x)} {n(y)})" opacity="0">'
             f'<animateTransform attributeName="transform" type="translate" additive="sum" values="{path}" dur="{n(d)}s" begin="{n(b)}s" repeatCount="indefinite"/>'
             f'<animate attributeName="opacity" values="0;{opacity:g};{opacity:g};0" keyTimes="0;.08;.8;1" dur="{n(d)}s" begin="{n(b)}s" repeatCount="indefinite"/>'
-            f'<use href="#bub" transform="scale({k:.2f})">'
-            f'<animateTransform attributeName="transform" type="scale" additive="sum" values="1 1;1.1 .9;.94 1.06;1 1" dur="{n(rnd.uniform(0.7, 1.3))}s" repeatCount="indefinite"/></use></g>'
+            f'<use href="#bub" transform="scale({k:.2f})"/></g>'
         )
     return "".join(out)
 

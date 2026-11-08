@@ -14,6 +14,7 @@ Preview copies of the backgrounds are written to assets/.
 from __future__ import annotations
 
 import base64
+import re
 import colorsys
 import math
 import random
@@ -219,17 +220,25 @@ def reef_layer(rnd, xs, y, base, colors, scale_range, sway, thin=1.0) -> str:
 # --------------------------------------------------------------------------
 
 
-def caustics_block(png_b64: str, tile: int, opacity: float, fade_stops: str, dur: float = 30) -> str:
-    """Three caustic layers drifting across each other -> shimmering interference.
+def caustics_block(png_b64: str, tile: int, opacity: float, fade: str | None = None, dur: float = 30, lite: bool = False, fps: int = 0) -> str:
+    """Caustic layers drifting across each other -> shimmering interference.
 
     The patterns are static; the rectangles they fill are moved by exactly one
-    lattice vector of their pattern per loop, so the drift is seamless. (Only
-    transform and opacity animations, which every engine supports.)"""
+    lattice vector of their pattern per loop, so the drift is seamless. Only
+    transform and opacity animations; no mask (masks are costly every frame).
+    `fade`: optional "top" = caustics only in the upper part, faded out by an
+    overlay in the colours of the water. Lite: two slow layers, nothing else."""
     layers = [("c1", "", 1.0, 0, 1.0, 0.7, ".45;.85;.45", 3.1),
               ("c2", "rotate(31) scale(1.55)", 1.55, 31, 1.37, 0.6, ".7;.3;.7", 3.9),
               ("c3", "rotate(-58) scale(.82)", 0.82, -58, 0.83, 0.45, ".2;.6;.2", 2.6)]
+    if lite:
+        layers = layers[:2]
+        dur *= 2.2
+        fps = fps or 8
+    keep = ' class="k"' if lite else ""
     defs = [f'<pattern id="c1" patternUnits="userSpaceOnUse" width="{tile}" height="{tile}">'
             f'<image href="data:image/png;base64,{png_b64}" width="{tile}" height="{tile}"/></pattern>']
+    height = VIEW_H if fade is None else int(VIEW_H * 0.62)
     rects = []
     for pid, tf, sc, rot, speed, op, flick, fdur in layers:
         if tf:
@@ -237,17 +246,33 @@ def caustics_block(png_b64: str, tile: int, opacity: float, fade_stops: str, dur
         a = math.radians(rot)
         vx, vy = tile * sc * math.cos(a), tile * sc * math.sin(a)  # one lattice vector
         m = int(tile * sc * 1.5) + 2
+        flicker = "" if (lite or fps) else f'<animate attributeName="opacity" values="{flick}" dur="{fdur}s" repeatCount="indefinite"/>'
+        d_ = dur * speed
+        if fps:
+            # few, discrete steps: the browser only redraws when a value changes,
+            # so the drift costs a fraction of 60 redraws per second
+            steps = int(d_ * fps)
+            vals = ";".join(f"{f(vx * i / steps)} {f(vy * i / steps)}" for i in range(steps + 1))
+            move = f'<animateTransform{keep} attributeName="transform" type="translate" calcMode="discrete" values="{vals}" dur="{f(d_)}s" repeatCount="indefinite"/>'
+        else:
+            move = f'<animateTransform attributeName="transform" type="translate" values="0 0;{f(vx)} {f(vy)}" dur="{f(d_)}s" repeatCount="indefinite"/>'
         rects.append(
-            f'<rect x="{-m}" y="{-m}" width="{VIEW_W + 2 * m}" height="{VIEW_H + 2 * m}" fill="url(#{pid})" opacity="{op:g}">'
-            f'<animateTransform attributeName="transform" type="translate" values="0 0;{f(vx)} {f(vy)}" dur="{f(dur * speed)}s" repeatCount="indefinite"/>'
-            f'<animate attributeName="opacity" values="{flick}" dur="{fdur}s" repeatCount="indefinite"/></rect>'
+            f'<rect x="{-m}" y="{-m}" width="{VIEW_W + 2 * m}" height="{height + 2 * m}" fill="url(#{pid})" opacity="{op:g}">'
+            f"{move}{flicker}</rect>"
         )
+    clip = ""
+    if fade is not None:
+        defs.append(f'<clipPath id="cc"><rect width="{VIEW_W}" height="{height}"/></clipPath>')
+        clip = ' clip-path="url(#cc)"'
+    breathe = "" if (lite or fps) else (f'<animate attributeName="opacity" values="{opacity * 0.7:.3f};{opacity:.3f};{opacity * 0.8:.3f};{opacity:.3f};{opacity * 0.7:.3f}" '
+                               f'dur="4.7s" repeatCount="indefinite"/>')
+    overlay = ""
+    if fade is not None:
+        defs.append(f'<linearGradient id="cfo" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="{height}">{fade}</linearGradient>')
+        overlay = f'<rect width="{VIEW_W}" height="{height}" fill="url(#cfo)"/>'
     return (
-        f'<defs>{"".join(defs)}<linearGradient id="cf" x1="0" y1="0" x2="0" y2="1">{fade_stops}</linearGradient>'
-        f'<mask id="cm" maskUnits="userSpaceOnUse" x="0" y="0" width="{VIEW_W}" height="{VIEW_H}"><rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#cf)"/></mask></defs>'
-        f'<g mask="url(#cm)" opacity="{opacity:g}">'
-        f'<animate attributeName="opacity" values="{opacity * 0.7:.3f};{opacity:.3f};{opacity * 0.8:.3f};{opacity:.3f};{opacity * 0.7:.3f}" dur="4.7s" repeatCount="indefinite"/>'
-        + "".join(rects) + "</g>"
+        f'<defs>{"".join(defs)}</defs>'
+        f'<g{clip} opacity="{opacity:g}">{breathe}' + "".join(rects) + f"</g>{overlay}"
     )
 
 
@@ -295,6 +320,10 @@ def drifting_dots(rnd: random.Random, count: int, fill_for, y_range, r_range, du
         b = -rnd.uniform(0, d)
         peak = rnd.uniform(*peak_range)
         dx, dy = move(rnd)
+        if art.STATIC:
+            q = rnd.uniform(0.1, 0.9)
+            out.append(f'<circle cx="{f(x + dx * q)}" cy="{f(y + dy * q)}" r="{rnd.uniform(*r_range):.1f}" fill="{fill_for(rnd)}" opacity="{peak * 0.75:.2f}"/>')
+            continue
         out.append(
             f'<circle cx="{f(x)}" cy="{f(y)}" r="{rnd.uniform(*r_range):.1f}" fill="{fill_for(rnd)}" opacity="0">'
             f'<animate attributeName="opacity" values="0;{peak:.2f};{peak * 0.4:.2f};{peak:.2f};0" dur="{f(d)}s" begin="{f(b)}s" repeatCount="indefinite"/>'
@@ -312,13 +341,134 @@ def sand(path_y: list[float], colour: str, opacity: float = 1.0) -> str:
     return f'<path d="{d}V{VIEW_H}H0Z" fill="{colour}"{op}/>'
 
 
-def background_coral(png_b64: str) -> str:
+ABYSS_STOPS = ((0, "#06243a"), (0.3, "#041729"), (0.65, "#020c19"), (1, "#01060e"))
+
+
+def gradient_at(stops_, q: float) -> str:
+    """Colour of a vertical gradient at offset q."""
+    for (q0, c0), (q1, c1) in zip(stops_, stops_[1:]):
+        if q0 <= q <= q1:
+            t = (q - q0) / (q1 - q0)
+            a, b = hex_to_rgb(c0), hex_to_rgb(c1)
+            return rgb_to_hex(*(x + (y - x) * t for x, y in zip(a, b)))
+    return stops_[-1][1]
+
+
+def caustics_layer(png_b64: str, tile: int, bands: list[tuple], lite: bool = True) -> str:
+    """Lite: the shimmer as its own small animated image on top of the still scene.
+    An animated SVG image is redrawn completely on every frame, so keeping only the
+    two drifting caustic layers in it makes each frame cheap; the scene below is a
+    still image that the browser draws once. `bands`: (y0, y1, opacity) strips."""
+    t2 = caustics_block(png_b64, tile, 1.0, lite=lite, fps=8 if lite else 12, dur=30)
+    defs, rest = t2.split("</defs>", 1)
+    if len(bands) == 1:
+        y0, y1, op = bands[0]
+        body = defs + f'</defs><g opacity="{op:g}">{rest}</g>'
+    else:
+        defs += f'<g id="sh">{rest}</g>'
+        groups = []
+        for k, (y0, y1, op) in enumerate(bands):
+            defs += f'<clipPath id="b{k}"><rect y="{y0}" width="{VIEW_W}" height="{y1 - y0}"/></clipPath>'
+            groups.append(f'<g clip-path="url(#b{k})" opacity="{op:g}"><use href="#sh"/></g>')
+        body = defs + "</defs>" + "".join(groups)
+    body = body.replace(' class="k"', "")
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEW_W} {VIEW_H}" preserveAspectRatio="xMidYMax slice">{body}</svg>'
+
+
+SLOW_FPS = 10  # water and reef layers step at this rate (aligned), life stays fluid
+
+
+class Layers:
+    """Scene split into stacked images (bottom to top). An animated SVG image is
+    redrawn completely whenever anything in it changes, so slow, calm parts get
+    their own images that only step a few times per second, and only the
+    swimming animals, bubbles and plankton are redrawn at full frame rate."""
+
+    def __init__(self):
+        self.water, self.reef, self.life, self.front = [], [], [], []
+
+
+def bare_svg(body: str, defs: str = "") -> str:
+    d = f"<defs>{defs}</defs>" if defs else ""
+    return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEW_W} {VIEW_H}" preserveAspectRatio="xMidYMax slice">{d}{body}</svg>'
+
+
+def compose(L: Layers, bg_stops: str, water_defs: str, life_defs: str, lite: bool) -> dict[str, str]:
+    if lite:
+        body = "".join(L.water + L.reef + L.life + L.front)
+        return {"scene": finish(svg_wrap(body, bg_stops, water_defs + life_defs), True)}
+    return {
+        "front": discretize(bare_svg("".join(L.front)), SLOW_FPS),
+        "life": bare_svg("".join(L.life), life_defs),
+        "reef": discretize(bare_svg("".join(L.reef)), SLOW_FPS),
+        "water": discretize(svg_wrap("".join(L.water), bg_stops, water_defs), SLOW_FPS),
+    }
+
+
+def _bezier_ease(x: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    lo, hi = 0.0, 1.0
+    for _ in range(30):
+        t = (lo + hi) / 2
+        bx = 3 * (1 - t) ** 2 * t * x1 + 3 * (1 - t) * t ** 2 * x2 + t ** 3
+        lo, hi = (t, hi) if bx < x else (lo, t)
+    t = (lo + hi) / 2
+    return 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t ** 2 * y2 + t ** 3
+
+
+def discretize(svg: str, fps: int) -> str:
+    """Resample every animate/animateTransform into discrete steps on a global
+    1/fps grid (durations and begins snapped), so the whole image changes at most
+    `fps` times per second instead of on every frame."""
+    def conv(m):
+        tag = m.group(0)
+        attrs = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', tag))
+        if "values" not in attrs or attrs.get("calcMode") == "discrete":
+            return tag
+        vals = [[float(x) for x in re.split(r"[ ,]+", v.strip())] for v in attrs["values"].split(";")]
+        nv = len(vals)
+        if nv < 2 or any(len(v) != len(vals[0]) for v in vals):
+            return tag
+        dur = float(attrs["dur"].rstrip("s"))
+        steps = max(2, round(dur * fps))
+        dur = steps / fps
+        kt = [float(x) for x in attrs["keyTimes"].split(";")] if "keyTimes" in attrs else [i / (nv - 1) for i in range(nv)]
+        ks = [[float(x) for x in re.split(r"[ ,]+", k.strip())] for k in attrs["keySplines"].split(";")] if attrs.get("calcMode") == "spline" and "keySplines" in attrs else None
+        out = []
+        for i in range(steps):
+            u = i / steps
+            j = max(0, min(nv - 2, next((k for k in range(nv - 1) if kt[k] <= u <= kt[k + 1]), nv - 2)))
+            span = kt[j + 1] - kt[j] or 1
+            w = (u - kt[j]) / span
+            if ks:
+                w = _bezier_ease(w, *ks[j])
+            out.append(" ".join(f(a + (b - a) * w) for a, b in zip(vals[j], vals[j + 1])))
+        new = re.sub(r'\s(values|keyTimes|keySplines|calcMode|dur)="[^"]*"', "", tag)
+        begin = ""
+        if "begin" in attrs:
+            new = re.sub(r'\sbegin="[^"]*"', "", new)
+            b = round(float(attrs["begin"].rstrip("s")) * fps) / fps
+            begin = f' begin="{f(b)}s"'
+        # discrete, n values, no keyTimes: each value is held for dur / n = 1 / fps
+        return new.replace("/>", f' calcMode="discrete" values="{";".join(out)}" dur="{f(dur)}s"{begin}/>')
+    return re.sub(r"<animate(?:Transform)?\b[^>]*/>", conv, svg)
+
+
+def finish(svg: str, lite: bool) -> str:
+    """Lite: drop every animation except the caustic drift (marked class="k")."""
+    art.STATIC = False
+    if not lite:
+        return svg
+    svg = re.sub(r'<animate(?:Transform|Motion)?\b(?![^>]*class="k")[^>]*/>', "", svg)
+    return svg.replace(' class="k"', "")
+
+
+def background_coral(png_b64: str, lite: bool = False) -> str:
     """Light: sunlit coral reef lagoon with fish, rays, jellyfish and a Spanish dancer."""
+    art.STATIC = lite
     rnd = random.Random(20260925)
     defs = [
         art.glow_gradients({"gw": "#ffffff", "gp": "#ffd3e2", "gc": "#d9fbff"}),
         art.bubble_defs("#e6ffff"),
-        art.DEPTH_FILTERS,
         art.jellyfish_def("jm", rnd, dict(glow="gw", glow_op=(0.18, 0.42), bell="#ffffff", bell_op=0.32, rim="#ffffff", gonad="#f49ac1",
                                           arm="#ffe4ef", arm_op=0.45, arm_edge="#ffffff", tent="#ffffff", tent_op=0.6), 3.0),
         art.lionfish_def("lf", rnd, dict(body="#f6ebe0", body_op=0.97, stripe="#7a2a24", band_top="#4a1714", thin="#8a4a3a",
@@ -329,29 +479,28 @@ def background_coral(png_b64: str) -> str:
                                     patch="#eef8fb", spot="#eef8fb")),
         art.dancer_def("sd", rnd, dict(glow="gp", glow_op=(0.12, 0.3), mantle="#e0283f", core="#ff6b6b", body_op=0.96, frill="#fff3f0", gill="#ffffff")),
     ]
-    body = [rays_block("#ffffff", 0.55)]
-    body.append(caustics_block(png_b64, 224, 0.72, stops((0, "#fff", 0.9), (0.5, "#fff", 0.5), (1, "#fff", 0.95))))
-    body.append(drifting_dots(rnd, 28, lambda r: "#ffffff", (60, 900), (1.2, 3.2), (9, 20),
+    L = Layers()
+    L.water.append("" if lite else caustics_block(png_b64, 224, 0.72, fps=SLOW_FPS))
+    L.water.append(rays_block("#ffffff", 0.55))
+    L.life.append(drifting_dots(rnd, 16, lambda r: "#ffffff", (60, 900), (1.2, 3.2), (9, 20),
                               lambda r: (r.uniform(-90, 90), r.uniform(-60, 60)), (0.5, 0.9)))
 
     # Far away (small, slow, faint, blurred), behind the back reef.
-    body.append(art.creature("ry", "ray", 0.12, rnd, (-320, 260), (1920, 340), 3, 160))
-    body.append(art.creature("lf", "lion", 0.16, rnd, (1860, 600), (-260, 520), 4, 90))
-    body.append(art.creature("jm", "jelly", 0.14, rnd, (1300, 1100), (500, -250), 4, 150))
-    body.append(art.creature("sd", "dancer", 0.2, rnd, (-220, 700), (1820, 620), 4, 110))
+    L.life.append(art.creature("ry", "ray", 0.12, rnd, (-320, 260), (1920, 340), 3, 160))
+    L.life.append(art.creature("jm", "jelly", 0.14, rnd, (1300, 1100), (500, -250), 4, 150))
     back = "".join([
         reef_layer(rnd, [60, 420, 760, 1120, 1480], 996, BIG, [("#8fd3dc", "#a6dde4")], (0.55, 0.7), (2.6, 8)),
         art.branching(rnd, 250, 996, 32, 2.4, 5, (12, 26), 0.84, "#9ad8e0", "#b4e4ea", (2, 7)),
         art.branching(rnd, 960, 996, 30, 2.4, 5, (12, 26), 0.84, "#9ad8e0", "#b4e4ea", (2, 7)),
         art.branching(rnd, 1300, 996, 22, 7, 4, (22, 42), 0.78, "#9ad8e0", "#b4e4ea", (1.5, 8)),
     ])
-    body.append(f'<g fill="none" stroke-linecap="round" opacity=".45">{back}</g>')
-    body.append(sand([990, 986, 989, 984, 988, 985, 989], "#bfe6e8", 0.7))
+    L.reef.append(f'<g fill="none" stroke-linecap="round" opacity=".45">{back}</g>')
+    L.reef.append(sand([990, 986, 989, 984, 988, 985, 989], "#bfe6e8", 0.7))
 
     # Middle distance.
-    body.append(art.creature("jm", "jelly", 0.5, rnd, (280, 1180), (980, -320), 4, 170))
-    body.append(art.creature("lf", "lion", 0.45, rnd, (-260, 640), (1860, 560), 5, 90))
-    body.append(art.creature("sd", "dancer", 0.55, rnd, (1820, 420), (-220, 540), 4, 150))
+    L.life.append(art.creature("jm", "jelly", 0.5, rnd, (280, 1180), (980, -320), 4, 170))
+    L.life.append(art.creature("lf", "lion", 0.45, rnd, (-260, 640), (1860, 560), 5, 90))
+    L.life.append(art.creature("sd", "dancer", 0.55, rnd, (1820, 420), (-220, 540), 4, 150))
 
     # Middle reef: muted colours.
     mid = "".join([
@@ -362,12 +511,12 @@ def background_coral(png_b64: str) -> str:
         art.tube_sponge(rnd, 720, 1004, "#b9a3ef", "#7f62c4", 0.95),
         art.anemone(rnd, 1400, 1004, "#f7a8c4", "#ffe6ef", "#d9809f", 1.05),
     ])
-    body.append(f'<g fill="none" stroke-linecap="round" opacity=".62">{mid}</g>')
+    L.reef.append(f'<g fill="none" stroke-linecap="round" opacity=".62">{mid}</g>')
 
     # Close by: big, fast and sharp.
-    body.append(art.creature("lf", "lion", 0.92, rnd, (1900, 700), (-300, 760), 5, 90))
-    body.append(art.creature("ry", "ray", 0.8, rnd, (-360, 200), (1960, 300), 3, 220))
-    body.append(art.creature("jm", "jelly", 0.85, rnd, (1850, 800), (-250, 100), 5, 140))
+    L.life.append(art.creature("lf", "lion", 0.92, rnd, (1900, 700), (-300, 760), 5, 90))
+    L.life.append(art.creature("ry", "ray", 0.8, rnd, (-360, 200), (1960, 300), 3, 220))
+    L.life.append(art.creature("jm", "jelly", 0.85, rnd, (1850, 800), (-250, 100), 5, 140))
 
     # Front reef, rooted at the very bottom.
     front = "".join([
@@ -388,28 +537,26 @@ def background_coral(png_b64: str) -> str:
         art.branching(rnd, 1480, 1012, 40, 13, 4, (22, 42), 0.78, "#7fd6c0", "#d8fff4", (1.5, 7), 6),
         reef_layer(rnd, [1575], 1012, BIG, [("#60a5f8", "#95c3ff")], (1.15, 1.3), (3.5, 6)),
     ])
-    body.append(f'<g fill="none" stroke-linecap="round" opacity=".88">{front}</g>')
-    body.append(art.bubbles(rnd, 38, [80, 215, 330, 445, 665, 780, 965, 1070, 1175, 1280, 1480, 1575], 990, (380, 920), (2, 8), (10, 20), 0.85))
-    body.append(sand([994, 989, 993, 987, 992, 988, 993, 989, 994], "#f3ead5"))
-    return svg_wrap(
-        "".join(body),
-        stops((0, "#e4fafa"), (0.32, "#b9ecef"), (0.62, "#85d6e0"), (0.86, "#69c4d3"), (1, "#5fbccc")),
-        "".join(defs),
-    )
+    L.front.append(f'<g fill="none" stroke-linecap="round" opacity=".88">{front}</g>')
+    L.life.append(art.bubbles(rnd, 24, [80, 215, 330, 445, 665, 780, 965, 1070, 1175, 1280, 1480, 1575], 990, (380, 920), (2, 8), (10, 20), 0.85))
+    L.front.append(sand([994, 989, 993, 987, 992, 988, 993, 989, 994], "#f3ead5"))
+    return compose(L, stops((0, "#e4fafa"), (0.32, "#b9ecef"), (0.62, "#85d6e0"), (0.86, "#69c4d3"), (1, "#5fbccc")), "", "".join(defs), lite)
 
 
-def background_abyss(png_b64: str) -> str:
+def background_abyss(png_b64: str, lite: bool = False) -> str:
     """Dark: deep sea, bioluminescent plankton, glowing animals and flora."""
+    art.STATIC = lite
     rnd = random.Random(424242)
     glow = ["#3df5e0", "#5ce8ff", "#b57cff", "#ff5fd2", "#7dffb0"]
-    defs = []
+    glow_defs = []
     for i, c in enumerate(glow):
-        defs.append(
+        glow_defs.append(
             f'<radialGradient id="g{i}"><stop offset="0" stop-color="#ffffff" stop-opacity=".95"/>'
             f'<stop offset=".18" stop-color="{c}" stop-opacity=".85"/><stop offset=".45" stop-color="{c}" stop-opacity=".22"/>'
             f'<stop offset="1" stop-color="{c}" stop-opacity="0"/></radialGradient>'
         )
-    defs.append(
+    defs = list(glow_defs)
+    water_defs = "".join(glow_defs) + (
         '<radialGradient id="haze" cx=".5" cy="0" r=".9"><stop offset="0" stop-color="#1b6f9a" stop-opacity=".35"/>'
         '<stop offset="1" stop-color="#1b6f9a" stop-opacity="0"/></radialGradient>'
         '<radialGradient id="floor" cx=".5" cy="1" r=".6" gradientTransform="translate(0 .5) scale(1 .5)">'
@@ -419,7 +566,6 @@ def background_abyss(png_b64: str) -> str:
     defs += [
         art.glow_gradients({"gc": "#3df5e0", "gv": "#b57cff", "gm": "#ff5fd2", "gb": "#5ccbff"}),
         art.bubble_defs("#7dfff0"),
-        art.DEPTH_FILTERS,
         art.jellyfish_def("ja", rnd, dict(glow="gc", glow_op=(0.25, 0.65), bell="#3df5e0", bell_op=0.13, rim="#9ffaf0", gonad="#b57cff",
                                           arm="#5ce8ff", arm_op=0.22, arm_edge="#9ffaf0", tent="#7dfff0", tent_op=0.7, neon=True), 2.6),
         art.jellyfish_def("jb", rnd, dict(glow="gv", glow_op=(0.22, 0.6), bell="#b57cff", bell_op=0.14, rim="#e0c8ff", gonad="#ff5fd2",
@@ -433,14 +579,21 @@ def background_abyss(png_b64: str) -> str:
         art.dancer_def("sd", rnd, dict(glow="gm", glow_op=(0.2, 0.5), mantle="#ff2d75", core="#ff8fb1", body_op=0.78, frill="#ffd0e8",
                                        gill="#ffe6f2", neon=True)),
     ]
-    body = [
+    # Water: caustics faded out towards the depth by an overlay in the exact colours
+    # of the water (cheaper than a mask), then haze, floor glow and light shafts.
+    fade = "".join(
+        f'<stop offset="{q:g}" stop-color="{gradient_at(ABYSS_STOPS, q * 0.62)}" stop-opacity="{o:g}"/>'
+        for q, o in [(0, 0), (0.2, 0.25), (0.4, 0.6), (0.6, 0.85), (0.8, 0.97), (1, 1)]
+    )
+    L = Layers()
+    L.water += [
+        "" if lite else caustics_block(png_b64, 260, 0.16, fade, fps=SLOW_FPS),
         f'<rect width="{VIEW_W}" height="{VIEW_H * 0.7:g}" fill="url(#haze)"/>',
         f'<rect width="{VIEW_W}" height="{VIEW_H}" fill="url(#floor)"/>',
         rays_block("#8fe9ff", 0.12),
-        caustics_block(png_b64, 260, 0.13, stops((0, "#fff", 1), (0.3, "#fff", 0.25), (0.55, "#fff", 0))),
     ]
     # Far-away bokeh.
-    body.append(drifting_dots(rnd, 9, lambda r: f"url(#g{r.choice([0, 1, 2, 2, 3])})", (150, 850), (28, 64), (26, 50),
+    L.water.append(drifting_dots(rnd, 6, lambda r: f"url(#g{r.choice([0, 1, 2, 2, 3])})", (150, 850), (28, 64), (26, 50),
                               lambda r: (r.uniform(-30, 30), r.uniform(-30, 30)), (0.12, 0.26)))
 
     neon = [("#3df5e0", "#7dfff0"), ("#b57cff", "#cfa8ff"), ("#5ce8ff", "#9ef2ff"), ("#ff5fd2", "#ff9be4")]
@@ -450,15 +603,14 @@ def background_abyss(png_b64: str) -> str:
         art.branching(rnd, 300, 998, 32, 1, 5, (12, 26), 0.84, "#5ccbff", "#9ef2ff", (2, 7), 1.2),
         art.branching(rnd, 1050, 998, 30, 1, 5, (12, 26), 0.84, "#b57cff", "#e0c8ff", (2, 7), 1.2),
     ])
-    body.append(f'<g fill="none" stroke-linecap="round" opacity=".3">{back}</g>')
+    L.reef.append(f'<g fill="none" stroke-linecap="round" opacity=".3">{back}</g>')
 
     # Far away: faint, blurred, slow.
-    body.append(art.creature("jb", "jelly", 0.15, rnd, (-260, 640), (1860, 220), 5, 150))
-    body.append(art.creature("ry", "ray", 0.2, rnd, (1920, 300), (-320, 200), 3, 180))
-    body.append(art.creature("lf", "lion", 0.14, rnd, (-260, 560), (1860, 640), 4, 90))
+    L.life.append(art.creature("jb", "jelly", 0.15, rnd, (-260, 640), (1860, 220), 5, 150))
+    L.life.append(art.creature("ry", "ray", 0.2, rnd, (1920, 300), (-320, 200), 3, 180))
     # Middle distance.
-    body.append(art.creature("ja", "jelly", 0.5, rnd, (200, 1200), (760, -320), 4, 170))
-    body.append(art.creature("sd", "dancer", 0.5, rnd, (-220, 470), (1820, 380), 4, 140))
+    L.life.append(art.creature("ja", "jelly", 0.5, rnd, (200, 1200), (760, -320), 4, 170))
+    L.life.append(art.creature("sd", "dancer", 0.5, rnd, (-220, 470), (1820, 380), 4, 140))
 
     # Middle flora.
     mid = "".join([
@@ -467,12 +619,12 @@ def background_abyss(png_b64: str) -> str:
         art.tube_worms(rnd, 800, 1005, "#16283a", "#ff6b9e", 4),
         art.branching(rnd, 1180, 1005, 40, 1.2, 6, (12, 26), 0.83, "#3df5e0", "#c2fff8", (2, 6), 1.4),
     ])
-    body.append(f'<g fill="none" stroke-linecap="round" opacity=".55">{mid}</g>')
+    L.reef.append(f'<g fill="none" stroke-linecap="round" opacity=".55">{mid}</g>')
 
     # Close by.
-    body.append(art.creature("ja", "jelly", 0.88, rnd, (1760, 1150), (380, -300), 4, 160))
-    body.append(art.creature("lf", "lion", 0.9, rnd, (1900, 700), (-300, 760), 5, 90))
-    body.append(art.creature("ry", "ray", 0.78, rnd, (-360, 260), (1960, 160), 3, 220))
+    L.life.append(art.creature("ja", "jelly", 0.88, rnd, (1760, 1150), (380, -300), 4, 160))
+    L.life.append(art.creature("lf", "lion", 0.9, rnd, (1900, 700), (-300, 760), 5, 90))
+    L.life.append(art.creature("ry", "ray", 0.78, rnd, (-360, 260), (1960, 160), 3, 220))
 
     # Front flora, rooted at the very bottom.
     front = "".join([
@@ -486,47 +638,39 @@ def background_abyss(png_b64: str) -> str:
         art.tube_worms(rnd, 1400, 1012, "#1c3446", "#ff8a5c"),
         art.sea_pen(rnd, 1540, 1012, 200, "#5ccbff", "#c2f6ff"),
     ])
-    body.append(
+    L.front.append(
         f'<g fill="none" stroke-linecap="round" opacity=".85">{front}'
         f'<animate attributeName="opacity" values=".85;.6;.85" dur="6s" repeatCount="indefinite"/></g>'
     )
-    body.append(art.bubbles(rnd, 22, [90, 230, 380, 520, 690, 860, 1010, 1120, 1250, 1400, 1540], 995, (300, 820), (1.5, 6), (12, 24), 0.6))
-    body.append(sand([996, 993, 995, 992, 995, 993, 996], "#06121e"))
+    L.life.append(art.bubbles(rnd, 14, [90, 230, 380, 520, 690, 860, 1010, 1120, 1250, 1400, 1540], 995, (300, 820), (1.5, 6), (12, 24), 0.6))
+    L.front.append(sand([996, 993, 995, 992, 995, 993, 996], "#06121e"))
 
     # Bioluminescent plankton: drifting upwards, pulsing.
     weights = [5, 3, 2, 1, 1]
-    body.append(drifting_dots(rnd, 64, lambda r: f"url(#g{r.choices(range(5), weights=weights)[0]})", (120, 1000),
+    L.life.append(drifting_dots(rnd, 40, lambda r: f"url(#g{r.choices(range(5), weights=weights)[0]})", (120, 1000),
                               (2.5, 15), (12, 28), lambda r: (r.uniform(-40, 40), -r.uniform(120, 380)), (0.45, 1.0)))
-    return svg_wrap(
-        "".join(body),
-        stops((0, "#06243a"), (0.3, "#041729"), (0.65, "#020c19"), (1, "#01060e")),
-        "".join(defs),
-    )
+    return compose(L, stops(*ABYSS_STOPS), water_defs, "".join(defs), lite)
 
 
-def border_svg(colors: list[str], opacity: float, width: float, radius: int, dur: float = 16) -> str:
-    """Hairline with an animated colour gradient, drawn as a background layer of the card.
+def border_svg(colors: list[str], opacity: float, width: float, radius: int, dur: float = 16, static: bool = False) -> str:
+    """Hairline with a colour gradient, drawn as a background layer of the card.
 
     The SVG has no size of its own, so it fills the card and 1 user unit is 1 CSS px:
     a rounded rect with the radius of the card, stroked on its edge (half the stroke
-    is clipped away, the other half is the hairline). The gradient rotates and its
-    colours cycle through the palette.
+    is clipped away, the other half is the hairline). The gradient slowly turns
+    (one transform animation); `static` leaves it still (Lite).
     """
-    n = len(colors)
+    k = len(colors)
     cyc = colors + [colors[0]]
-    stops_ = []
-    for i in range(n + 1):
-        seq = [cyc[(i + k) % n] for k in range(n)] + [cyc[i % n]]
-        stops_.append(
-            f'<stop offset="{i / n:.3f}" stop-color="{cyc[i % n]}">'
-            f'<animate attributeName="stop-color" values="{";".join(seq)}" dur="{f(dur * 0.75)}s" repeatCount="indefinite"/></stop>'
-        )
+    stops_ = "".join(f'<stop offset="{i / k:.3f}" stop-color="{cyc[i]}"/>' for i in range(k + 1))
+    # The turn advances in discrete steps (6 per second): each card only redraws its
+    # hairline when the angle changes, instead of 60 times per second.
+    steps = int(dur * 6)
+    vals = ";".join(f"{f(360 * i / steps)} .5 .5" for i in range(steps + 1))
+    turn = "" if static else f'<animateTransform attributeName="gradientTransform" type="rotate" calcMode="discrete" values="{vals}" dur="{f(dur)}s" repeatCount="indefinite"/>'
     return (
         '<svg xmlns="http://www.w3.org/2000/svg"><defs>'
-        '<linearGradient id="l" x1="0" y1=".5" x2="1" y2=".5">'
-        f'{"".join(stops_)}'
-        f'<animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="360 .5 .5" dur="{f(dur)}s" repeatCount="indefinite"/>'
-        "</linearGradient></defs>"
+        f'<linearGradient id="l" x1="0" y1=".5" x2="1" y2=".5" gradientTransform="rotate(35 .5 .5)">{stops_}{turn}</linearGradient></defs>'
         f'<rect width="100%" height="100%" rx="{radius}" fill="none" stroke="url(#l)" stroke-width="{width * 2:g}" stroke-opacity="{opacity:g}"/></svg>'
     )
 
@@ -592,7 +736,12 @@ def shared_vars() -> dict[str, str]:
     }
 
 
-def coral_vars(background: str) -> dict[str, str]:
+def layered(images: list[str], colour: str) -> str:
+    """CSS background with stacked SVG images (first = top) over a colour."""
+    return ", ".join(f'url("{u}") center bottom / cover no-repeat' for u in images) + f" {colour}"
+
+
+def coral_vars(background: list[str], lite: bool = False) -> dict[str, str]:
     """Light: coral reef in shallow, sunlit water."""
     ink = "#0b3a52"
     primary = "#0b8a9c"
@@ -627,11 +776,11 @@ def coral_vars(background: str) -> dict[str, str]:
         "info-color": "#2d9cdb",
         "state-icon-color": "#0f8fa1",
         # The underwater scene sits behind every panel (sidebar, dashboards, settings).
-        "ha-panel-background": f'url("{background}") center bottom / cover no-repeat #85d6e0',
+        "ha-panel-background": layered(background, "#85d6e0"),
         "lovelace-background": "transparent",
         "ha-panel-toolbar-background": "rgba(240, 252, 252, 0.4)",
         # Glass cards with a hairline in the reef colour.
-        "ha-card-background": f'url("{data_uri(border_svg(["#14bfc4", "#3d8ef2", "#8f6cf0", "#ff7a6b"], 0.85, 0.6, RADIUS))}") 0 0 / 100% 100% no-repeat border-box, linear-gradient(155deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2) 60%, rgba(255, 255, 255, 0.32))',
+        "ha-card-background": f'url("{data_uri(border_svg(["#14bfc4", "#3d8ef2", "#8f6cf0", "#ff7a6b"], 0.85, 0.6, RADIUS, static=lite))}") 0 0 / 100% 100% no-repeat border-box, linear-gradient(155deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2) 60%, rgba(255, 255, 255, 0.32))',
         "ha-card-border-color": "transparent",
         "ha-card-box-shadow": "inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 10px 30px -14px rgba(8, 70, 90, 0.35)",
         "ha-button-box-shadow": f"inset 0 0 0 0.5px {rgba(line, 0.55)}",
@@ -691,7 +840,7 @@ def coral_vars(background: str) -> dict[str, str]:
     return v
 
 
-def abyss_vars(background: str) -> dict[str, str]:
+def abyss_vars(background: list[str], lite: bool = False) -> dict[str, str]:
     """Dark: deep sea, bioluminescent neon."""
     ink = "#dcf6f8"
     primary = "#3df5e0"
@@ -727,11 +876,11 @@ def abyss_vars(background: str) -> dict[str, str]:
         "info-color": "#5ccbff",
         "state-icon-color": "#5ce8ff",
         "state-active-color": "#ffd166",
-        "ha-panel-background": f'url("{background}") center bottom / cover no-repeat #020c19',
+        "ha-panel-background": layered(background, "#020c19"),
         "lovelace-background": "transparent",
         "ha-panel-toolbar-background": "rgba(3, 14, 26, 0.45)",
         # Glass in the abyss: dark, translucent, glowing hairline.
-        "ha-card-background": f'url("{data_uri(border_svg(["#3df5e0", "#5ccbff", "#b57cff", "#ff5fd2"], 0.75, 0.6, RADIUS))}") 0 0 / 100% 100% no-repeat border-box, linear-gradient(155deg, rgba(110, 220, 255, 0.1), rgba(8, 30, 50, 0.2) 55%, rgba(6, 24, 40, 0.32))',
+        "ha-card-background": f'url("{data_uri(border_svg(["#3df5e0", "#5ccbff", "#b57cff", "#ff5fd2"], 0.75, 0.6, RADIUS, static=lite))}") 0 0 / 100% 100% no-repeat border-box, linear-gradient(155deg, rgba(110, 220, 255, 0.1), rgba(8, 30, 50, 0.2) 55%, rgba(6, 24, 40, 0.32))',
         "ha-card-border-color": "transparent",
         "ha-card-box-shadow": f"inset 0 1px 0 rgba(160, 255, 245, 0.07), 0 0 22px -8px {rgba(line, 0.28)}",
         "ha-button-box-shadow": f"inset 0 0 0 0.5px {rgba(line, 0.5)}, 0 0 12px -4px {rgba(line, 0.35)}",
@@ -824,17 +973,30 @@ def emit(name: str, base: dict, light: dict | None, dark: dict | None, indent=" 
 def main() -> None:
     png = caustic_png()
     png_b64 = base64.b64encode(png).decode()
-    svg_light = background_coral(png_b64)
-    svg_dark = background_abyss(png_b64)
-
+    full = {"coral": background_coral(png_b64), "abyss": background_abyss(png_b64)}
+    lite = {"coral": background_coral(png_b64, lite=True)["scene"], "abyss": background_abyss(png_b64, lite=True)["scene"]}
+    shimmer = {"coral": caustics_layer(png_b64, 224, [(0, VIEW_H, 0.5)]),
+               "abyss": caustics_layer(png_b64, 260, [(0, 150, 0.15), (150, 300, 0.1), (300, 450, 0.055), (450, 600, 0.02)])}
     ASSETS.mkdir(exist_ok=True)
-    (ASSETS / "background-coral.svg").write_text(svg_light)
-    (ASSETS / "background-abyss.svg").write_text(svg_dark)
+    for old in ASSETS.glob("background-*.svg"):
+        old.unlink()
+    svgs = {}
+    for scene in ("coral", "abyss"):
+        for layer, svg in full[scene].items():
+            svgs[f"{scene}-{layer}"] = svg
+        svgs[f"{scene}-lite"] = lite[scene]
+        svgs[f"{scene}-lite-shimmer"] = shimmer[scene]
+    for name, svg in svgs.items():
+        (ASSETS / f"background-{name}.svg").write_text(svg)
     (ASSETS / "caustics.png").write_bytes(png)
 
-    light = coral_vars(data_uri(svg_light))
-    dark = abyss_vars(data_uri(svg_dark))
+    order = ("front", "life", "reef", "water")
     shared = shared_vars()
+    light = coral_vars([data_uri(full["coral"][k]) for k in order])
+    dark = abyss_vars([data_uri(full["abyss"][k]) for k in order])
+    light_lite = coral_vars([data_uri(shimmer["coral"]), data_uri(lite["coral"])], lite=True)
+    dark_lite = abyss_vars([data_uri(shimmer["abyss"]), data_uri(lite["abyss"])], lite=True)
+    lite_shared = dict(shared, **{"ha-card-backdrop-filter": "blur(4px) saturate(140%)", "app-header-backdrop-filter": "blur(8px) saturate(140%)"})
 
     header = [
         "# Reef Theme for Home Assistant",
@@ -842,20 +1004,19 @@ def main() -> None:
         "#",
         "# GENERATED FILE: edit tools/build.py and run `python3 tools/build.py`.",
         "#",
-        "#   Reef        follows the light/dark setting of your profile or device",
-        "#   Reef Coral  always light: a sunlit coral reef",
-        "#   Reef Abyss  always dark: the deep sea, bioluminescent",
+        "#   Reef       animated reef / deep sea, follows the light/dark setting",
+        "#   Reef Lite  same look with a still scene and a calm shimmer: for phones,",
+        "#              the Companion app and wall tablets",
         "",
     ]
     out = header
     out += emit("Reef", shared, light, dark) + [""]
-    out += emit("Reef Coral", {**shared, **light}, None, None) + [""]
-    out += emit("Reef Abyss", shared, None, dark)
+    out += emit("Reef Lite", lite_shared, light_lite, dark_lite)
     THEME_FILE.parent.mkdir(exist_ok=True)
     THEME_FILE.write_text("\n".join(out) + "\n")
     print(f"caustics.png   {len(png) / 1024:6.1f} KiB")
-    print(f"coral svg      {len(svg_light) / 1024:6.1f} KiB")
-    print(f"abyss svg      {len(svg_dark) / 1024:6.1f} KiB")
+    for name, svg in svgs.items():
+        print(f"{name:14s} {len(svg) / 1024:6.1f} KiB")
     print(f"{THEME_FILE.relative_to(ROOT)}  {THEME_FILE.stat().st_size / 1024:6.1f} KiB")
 
 
